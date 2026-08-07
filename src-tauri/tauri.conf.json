@@ -30,7 +30,11 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": ["nsis", "msi"],
+    "publisher": "Tomas Sanchez Bustos",
+    "copyright": "Copyright © 2026 Tomas Sanchez Bustos",
+    "shortDescription": "Grabador y transcriptor de clases 100% local",
+    "longDescription": "ClassRecorder graba, organiza y transcribe clases universitarias sin backend ni servicios en la nube. La transcripción corre local con whisper.cpp o faster-whisper.",
     "externalBin": ["binaries/ffmpeg"],
     "icon": [
       "icons/32x32.png",

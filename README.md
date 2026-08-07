@@ -9,6 +9,28 @@ Construida con **Tauri v2 + React + TypeScript**, con la lógica de archivos y
 los procesos externos (ffmpeg, whisper.cpp, faster-whisper) manejados desde
 un backend en **Rust**.
 
+## Instalación
+
+Desde [**GitHub Releases**](https://github.com/tmssnchz/Class-Recorder/releases) — no hace falta compilar nada:
+
+1. Bajá `ClassRecorder_X.X.X_x64-setup.exe` (instalador NSIS) o el `.msi` de la
+   última release. Cualquiera de los dos instala lo mismo; el `.exe` es más
+   chico, el `.msi` es el formato estándar de Windows si tu organización lo
+   prefiere para distribución.
+2. Al ejecutarlo, Windows SmartScreen va a avisar **"Windows protegió su PC"**
+   porque el instalador no está firmado digitalmente (ver [Estado](#estado)).
+   Click en **"Más información"** → **"Ejecutar de todas formas"**.
+3. Abrí ClassRecorder desde el menú Inicio. La app funciona de entrada para
+   grabar y organizar clases.
+4. Para transcribir, andá a **Configuración → Motor y modelos** y descargá el
+   motor (whisper.cpp, ~8 MB, o faster-whisper, ~84 MB) y al menos un modelo
+   (desde 31 MB el más chico). Es la única parte que usa internet — una vez
+   descargado, la transcripción funciona sin conexión.
+
+El instalador **no incluye** el motor de transcripción ni los modelos: se
+descargan la primera vez que los uses, desde Hugging Face / GitHub Releases
+de cada proyecto, directamente desde la app.
+
 ## Qué hace
 
 - **Grabación** con autoguardado por chunks cada 5 segundos: si la app se
@@ -111,8 +133,13 @@ scripts/                # Setup del entorno de desarrollo (no de la app en sí)
 ## Estado
 
 Proyecto personal en desarrollo activo. Funciona de punta a punta (grabar →
-transcribir → exportar) pero todavía no está empaquetado como release
-distribuible ni firmado digitalmente.
+transcribir → exportar). Ver [CHANGELOG.md](CHANGELOG.md) por versión.
+
+**No está firmado digitalmente ni notarizado.** Conseguir un certificado de
+firma de código (Authenticode) tiene costo y un proceso de verificación de
+identidad que todavía no hice — por eso Windows SmartScreen muestra la
+advertencia al instalar. El código es público en este repo si querés
+auditarlo antes de confiar en el ejecutable.
 
 ## Cómo se hizo
 
