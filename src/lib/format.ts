@@ -11,6 +11,19 @@ export function formatearDuracion(segundos: number): string {
     : `${dosDigitos(m)}:${dosDigitos(s)}`;
 }
 
+/**
+ * Inverso de `formatearDuracion`: "mm:ss" o "h:mm:ss" a segundos.
+ * null si el texto no tiene ese formato.
+ */
+export function parsearDuracion(texto: string): number | null {
+  const partes = texto.trim().split(":");
+  if (partes.length < 2 || partes.length > 3) return null;
+  const numeros = partes.map(Number);
+  if (numeros.some((n) => !Number.isFinite(n) || n < 0)) return null;
+  const [a, b, c] = numeros;
+  return partes.length === 2 ? a * 60 + b : a * 3600 + b * 60 + c;
+}
+
 export function formatearFecha(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";

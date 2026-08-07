@@ -25,7 +25,7 @@ function rutasDe(g: Grabacion): { audio: string; extras: string[] } {
 }
 
 /** Busca un nombre base libre en `carpeta` (agrega _2, _3… si hace falta). */
-async function tituloLibre(
+export async function tituloLibre(
   carpeta: string,
   deseado: string,
   formato: string,

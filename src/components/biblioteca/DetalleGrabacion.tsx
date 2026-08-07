@@ -16,6 +16,7 @@ import {
   formatearHora,
 } from "../../lib/format";
 import { escribirMetaGrabacion } from "../../lib/grabaciones";
+import { RecortarAudio } from "./RecortarAudio";
 import { SIN_CLASE, SIN_UNIDAD, type Grabacion } from "../../types";
 import { Icono } from "../ui/Icono";
 import { ModalConfirmacion } from "../ui/ModalConfirmacion";
@@ -27,6 +28,8 @@ interface Props {
   /** Consulta del buscador global, para resaltarla dentro de la transcripción. */
   resaltar?: string;
   onEliminada(): void;
+  /** Se llama cuando "Recortar" crea una copia nueva, para poder seleccionarla. */
+  onRecortada?(nuevaId: string): void;
 }
 
 export function DetalleGrabacion({
@@ -34,8 +37,10 @@ export function DetalleGrabacion({
   progresoConversion,
   resaltar,
   onEliminada,
+  onRecortada,
 }: Props) {
-  const { datos, config, actualizarGrabacion, quitarGrabacion } = useStore();
+  const { datos, config, agregarGrabacion, actualizarGrabacion, quitarGrabacion } =
+    useStore();
   const { tareas } = useTranscripciones();
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -43,6 +48,7 @@ export function DetalleGrabacion({
   const [titulo, setTitulo] = useState(grabacion.titulo);
   const [tagNuevo, setTagNuevo] = useState("");
   const [confirmandoBorrado, setConfirmandoBorrado] = useState(false);
+  const [recortando, setRecortando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
   // Cambiar esto remonta el <audio>: hace falta después de mover o renombrar.
@@ -139,6 +145,20 @@ export function DetalleGrabacion({
       setConfirmandoBorrado(false);
       onEliminada();
     });
+  };
+
+  const alTerminarRecorte = (resultado: Grabacion, reemplazo: boolean) => {
+    setRecortando(false);
+    if (reemplazo) {
+      // Mismo id: se actualiza en el lugar, igual que mover o renombrar.
+      void conArchivos(async () => {
+        await actualizarGrabacion(grabacion.id, resultado);
+      });
+    } else {
+      // Grabación nueva: el original queda como estaba, se agrega la copia
+      // y se le pasa la posta a quien nos contiene para que la seleccione.
+      void agregarGrabacion(resultado).then(() => onRecortada?.(resultado.id));
+    }
   };
 
   const saltarA = (segundo: number) => {
@@ -398,6 +418,20 @@ export function DetalleGrabacion({
           <Icono nombre="carpeta" tamano={16} /> Abrir carpeta
         </button>
         <button
+          className="btn"
+          disabled={bloqueadoPorArchivos || convirtiendo}
+          title={
+            transcribiendo
+              ? "No se puede recortar mientras se transcribe"
+              : convirtiendo
+                ? "Esperá a que termine de convertirse el audio"
+                : undefined
+          }
+          onClick={() => setRecortando(true)}
+        >
+          <Icono nombre="tijera" tamano={16} /> Recortar audio
+        </button>
+        <button
           className="btn btn-peligro"
           disabled={bloqueadoPorArchivos}
           title={
@@ -408,6 +442,14 @@ export function DetalleGrabacion({
           <Icono nombre="basura" tamano={16} /> Eliminar
         </button>
       </div>
+
+      {recortando && (
+        <RecortarAudio
+          grabacion={grabacion}
+          onCancelar={() => setRecortando(false)}
+          onListo={alTerminarRecorte}
+        />
+      )}
 
       <ModalConfirmacion
         abierto={confirmandoBorrado}

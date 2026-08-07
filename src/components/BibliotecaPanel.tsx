@@ -305,6 +305,7 @@ export function BibliotecaPanel() {
                 progresoConversion={conversiones[grabacion.id]}
                 resaltar={enTranscripciones ? busqueda.trim() : undefined}
                 onEliminada={() => setSeleccionada(null)}
+                onRecortada={setSeleccionada}
               />
             ) : (
               <p className="vacio">

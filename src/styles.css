@@ -1515,3 +1515,73 @@ mark {
   gap: 8px;
   margin-top: 20px;
 }
+
+/* ------------------------------------------------------------ recorte de audio */
+
+.modal-recorte {
+  width: min(560px, 100%);
+}
+
+.recorte-explicacion {
+  margin: 0 0 12px;
+}
+
+.conmutador-ancho {
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.conmutador-ancho button {
+  flex: 1;
+}
+
+.limite-corte {
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.limite-etiqueta {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--texto-sutil);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 6px;
+}
+
+.limite-campos {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.limite-campos label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.limite-campos input {
+  width: 100%;
+}
+
+.error-inline {
+  display: block;
+  color: var(--peligro);
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.ajuste-recorte {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--borde);
+}
+
+.recorte-procesando {
+  margin: 12px 0 0;
+  text-align: center;
+}

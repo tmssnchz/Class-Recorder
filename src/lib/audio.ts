@@ -5,8 +5,10 @@
  * de pasar a MP3/WAV y, más adelante, de generar el WAV 16 kHz mono que
  * whisper.cpp necesita como entrada.
  */
+import { exists, remove, writeTextFile } from "@tauri-apps/plugin-fs";
 import { Command } from "@tauri-apps/plugin-shell";
 
+import { unir } from "./paths";
 import type { FormatoAudio } from "../types";
 
 const SIDECAR = "binaries/ffmpeg";
@@ -90,6 +92,85 @@ export function convertirAudio(
     ],
     opciones,
   );
+}
+
+/**
+ * Extrae el tramo [desdeSeg, hastaSeg) sin recodificar (copia de flujo): es
+ * rápido y no pierde calidad. Sirve tanto para "cortar desde un punto"
+ * (desdeSeg=0) como de paso intermedio para "quitar un intervalo" (se
+ * recortan las dos mitades por separado y después se unen con
+ * `concatenarArchivos`).
+ */
+export function recortarSegmento(
+  entrada: string,
+  salida: string,
+  desdeSeg: number,
+  hastaSeg: number,
+  opciones: OpcionesConversion = {},
+): Promise<void> {
+  return ejecutar(
+    [
+      "-y",
+      "-hide_banner",
+      "-i",
+      entrada,
+      "-ss",
+      String(Math.max(0, desdeSeg)),
+      "-to",
+      String(hastaSeg),
+      "-c",
+      "copy",
+      "-progress",
+      "pipe:1",
+      "-nostats",
+      salida,
+    ],
+    opciones,
+  );
+}
+
+/**
+ * Concatena archivos del mismo códec (los tramos de `recortarSegmento`, por
+ * ejemplo) sin recodificar, con el demuxer "concat" de ffmpeg. Necesita un
+ * archivo de lista temporal: se escribe, se usa y se borra en el momento.
+ */
+export async function concatenarArchivos(
+  rutas: string[],
+  salida: string,
+  carpetaTemp: string,
+  opciones: OpcionesConversion = {},
+): Promise<void> {
+  const lista = unir(carpetaTemp, `concat_${Date.now()}.txt`);
+  // ffmpeg interpreta backslashes de Windows como escapes dentro de este
+  // archivo de lista: se pasa todo a barras normales para evitarlo.
+  const contenido = rutas
+    .map((r) => `file '${r.replace(/\\/g, "/").replace(/'/g, "'\\''")}'`)
+    .join("\n");
+  await writeTextFile(lista, contenido);
+
+  try {
+    await ejecutar(
+      [
+        "-y",
+        "-hide_banner",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        lista,
+        "-c",
+        "copy",
+        "-progress",
+        "pipe:1",
+        "-nostats",
+        salida,
+      ],
+      opciones,
+    );
+  } finally {
+    if (await exists(lista)) await remove(lista);
+  }
 }
 
 /**
