@@ -13,7 +13,8 @@ type Nombre =
   | "carpeta"
   | "alerta"
   | "tijera"
-  | "abrir";
+  | "abrir"
+  | "celular";
 
 const TRAZOS: Record<Nombre, string> = {
   micro:
@@ -32,6 +33,7 @@ const TRAZOS: Record<Nombre, string> = {
   tijera:
     "M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM20 4 7.5 12M20 20 7.5 12M8.6 10.4l2.9 1.6",
   abrir: "M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6",
+  celular: "M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2ZM11 19h2",
 };
 
 export function Icono({

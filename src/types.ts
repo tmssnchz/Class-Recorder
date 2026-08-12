@@ -176,6 +176,11 @@ export interface Config {
    * desconectado?". 0 lo desactiva. Nunca detiene la grabación: solo avisa.
    */
   minutosSilencioAviso: number;
+  /**
+   * Carpeta ClassRecorder_Inbox dentro del Drive sincronizado del usuario.
+   * null = todavía no configuró la importación desde el celular.
+   */
+  carpetaInbox: string | null;
 }
 
 export const VERSION_BD = 1;
@@ -206,6 +211,7 @@ export const CONFIG_POR_DEFECTO: Config = {
   atajosGlobales: true,
   umbralDiscoGB: 2,
   minutosSilencioAviso: 2,
+  carpetaInbox: null,
 };
 
 /** Paleta para asignar color a las clases nuevas. */

@@ -6,6 +6,7 @@ import { describirAtajo } from "../lib/atajos";
 import { formatearBytes, formatearDuracion } from "../lib/format";
 import { consultarEspacio, type EspacioDisco } from "../lib/grabaciones";
 import { SIN_CLASE, SIN_UNIDAD } from "../types";
+import { SincronizarCelular } from "./SincronizarCelular";
 import { Icono } from "./ui/Icono";
 import { Medidor } from "./ui/Medidor";
 import { ModalConfirmacion } from "./ui/ModalConfirmacion";
@@ -24,6 +25,7 @@ export function GrabarPanel() {
   const [creandoUnidad, setCreandoUnidad] = useState(false);
   const [nombreUnidadNueva, setNombreUnidadNueva] = useState("");
   const [errorCreacion, setErrorCreacion] = useState<string | null>(null);
+  const [sincronizando, setSincronizando] = useState(false);
 
   const clase = datos.clases.find((c) => c.id === g.seleccion.claseId) ?? null;
   const grabando = g.fase === "grabando";
@@ -82,7 +84,16 @@ export function GrabarPanel() {
             se pierde lo grabado.
           </p>
         </div>
+        {config.carpetaInbox && !activo && (
+          <button className="btn" onClick={() => setSincronizando(true)}>
+            <Icono nombre="celular" tamano={16} /> Sincronizar desde el celular
+          </button>
+        )}
       </header>
+
+      {sincronizando && (
+        <SincronizarCelular onCerrar={() => setSincronizando(false)} />
+      )}
 
       {g.error && (
         <div className="aviso aviso-error">

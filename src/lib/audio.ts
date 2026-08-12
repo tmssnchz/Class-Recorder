@@ -60,6 +60,39 @@ function ejecutar(
   });
 }
 
+/**
+ * Duración en segundos de un archivo de audio, leída del encabezado que
+ * ffmpeg imprime por stderr. Devuelve 0 si no se pudo determinar.
+ *
+ * Hace falta al importar: una grabación nativa ya sabe cuánto duró porque la
+ * cronometró, pero un archivo que viene del celular no trae ese dato.
+ */
+export function duracionDe(entrada: string): Promise<number> {
+  return new Promise((resolver) => {
+    const cmd = Command.sidecar(SIDECAR, ["-hide_banner", "-i", entrada]);
+    let stderr = "";
+    cmd.stderr.on("data", (linea) => {
+      stderr += linea;
+    });
+    cmd.on("close", () => {
+      // "Duration: 00:19:36.60, start: ..."
+      const m = /Duration:\s*(\d+):(\d{2}):(\d{2})\.(\d+)/.exec(stderr);
+      if (!m) {
+        resolver(0);
+        return;
+      }
+      const [, h, min, s, frac] = m;
+      resolver(
+        Number(h) * 3600 + Number(min) * 60 + Number(s) + Number(`0.${frac}`),
+      );
+    });
+    cmd.on("error", () => resolver(0));
+    // ffmpeg sin archivo de salida termina con código 1: no es un fallo acá,
+    // igual imprimió el encabezado que queremos.
+    cmd.spawn().catch(() => resolver(0));
+  });
+}
+
 /** Convierte la grabación cruda (.webm/Opus) al formato final elegido por el usuario. */
 export function convertirAudio(
   entrada: string,

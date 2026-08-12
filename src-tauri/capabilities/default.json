@@ -10,6 +10,7 @@
     "opener:default",
     "opener:allow-reveal-item-in-dir",
     "opener:allow-open-path",
+    "opener:allow-open-url",
     "dialog:default",
     "dialog:allow-save",
     "dialog:allow-open",

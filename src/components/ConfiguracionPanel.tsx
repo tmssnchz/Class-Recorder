@@ -2,10 +2,19 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 
 import { carpetaDeDatos } from "../lib/almacen";
+import {
+  URL_DESCARGA_DRIVE,
+  detectarDrive,
+  prepararInbox,
+  type InfoDrive,
+} from "../lib/importar";
 import { useStore } from "../estado/store";
+
+/** Igual que el del backend: la subcarpeta que la app crea dentro del Drive. */
+const NOMBRE_INBOX = "ClassRecorder_Inbox";
 import { aceleradorDesdeEvento, describirAtajo } from "../lib/atajos";
 import { formatearBytes, formatearDuracion } from "../lib/format";
 import {
@@ -75,6 +84,10 @@ export function ConfiguracionPanel() {
   const [hilosSugeridos, setHilosSugeridos] = useState(4);
   const [carpetaModelosRuta, setCarpetaModelosRuta] = useState("");
   const [carpetaModelosFasterRuta, setCarpetaModelosFasterRuta] = useState("");
+
+  // Importación desde el celular
+  const [drive, setDrive] = useState<InfoDrive | null>(null);
+  const [errorInbox, setErrorInbox] = useState<string | null>(null);
 
   // Respaldo
   const [incluirAudio, setIncluirAudio] = useState(true);
@@ -235,6 +248,31 @@ export function ConfiguracionPanel() {
   const quitarModeloFaster = async (modelo: ModeloFasterInfo) => {
     await borrarModeloFaster(modelo);
     await refrescarInstalacion();
+  };
+
+  // ------------------------------------------------- importar del celular
+
+  useEffect(() => {
+    void detectarDrive().then(setDrive).catch(() => setDrive(null));
+  }, []);
+
+  const elegirInbox = async () => {
+    setErrorInbox(null);
+    const elegida = await open({
+      directory: true,
+      title: "Elegir la carpeta raíz de tu Google Drive",
+      defaultPath: config.carpetaInbox ?? drive?.candidatas[0],
+    });
+    if (typeof elegida !== "string") return;
+    try {
+      // Si eligió el Inbox en vez de la raíz, no se anida otro adentro.
+      const raiz = elegida.endsWith(NOMBRE_INBOX)
+        ? elegida.slice(0, -(NOMBRE_INBOX.length + 1))
+        : elegida;
+      await actualizarConfig({ carpetaInbox: await prepararInbox(raiz) });
+    } catch (e) {
+      setErrorInbox(e instanceof Error ? e.message : String(e));
+    }
   };
 
   // -------------------------------------------------------------- respaldo
@@ -830,6 +868,84 @@ export function ConfiguracionPanel() {
       </div>
 
       {/* -------------------------------------------------------- respaldo */}
+      <div className="tarjeta">
+        <h3 className="titulo-seccion">Importar desde el celular</h3>
+        <p className="sutil" style={{ marginBottom: 14 }}>
+          Para traer grabaciones hechas con el teléfono. Todo pasa por la
+          carpeta local que Google Drive ya sincroniza: la app no se conecta a
+          Drive ni pide permisos de tu cuenta.
+        </p>
+
+        {errorInbox && (
+          <div className="aviso aviso-error">
+            <Icono nombre="alerta" />
+            <span>{errorInbox}</span>
+            <button className="btn-icono" onClick={() => setErrorInbox(null)}>
+              <Icono nombre="equis" tamano={16} />
+            </button>
+          </div>
+        )}
+
+        {drive && !drive.instalado && !config.carpetaInbox && (
+          <div className="aviso aviso-info">
+            <Icono nombre="alerta" />
+            <span>
+              No encontré Google Drive para escritorio en esta máquina. Hace
+              falta instalarlo y dejar que sincronice al menos una vez, para que
+              exista la carpeta en el disco. Si ya lo tenés instalado en otra
+              ubicación, elegí la carpeta a mano igual.
+            </span>
+            <button
+              className="btn btn-mini"
+              onClick={() => void openUrl(URL_DESCARGA_DRIVE)}
+            >
+              Descargar
+            </button>
+          </div>
+        )}
+
+        <div className="ajuste">
+          <div className="ajuste-texto">
+            <strong>Carpeta de entrada</strong>
+            <small className="sutil">
+              {config.carpetaInbox ? (
+                <code>{config.carpetaInbox}</code>
+              ) : drive && drive.candidatas.length > 0 ? (
+                `Se detectó tu Drive en ${drive.candidatas[0]}. Al elegirla se crea la subcarpeta ClassRecorder_Inbox adentro.`
+              ) : (
+                "Elegí la carpeta raíz de tu Drive sincronizado. La subcarpeta ClassRecorder_Inbox se crea sola."
+              )}
+            </small>
+          </div>
+          <button
+            className={config.carpetaInbox ? "btn" : "btn btn-primario"}
+            onClick={() => void elegirInbox()}
+          >
+            <Icono nombre="carpeta" tamano={16} />{" "}
+            {config.carpetaInbox ? "Cambiar" : "Elegir carpeta"}
+          </button>
+        </div>
+
+        {config.carpetaInbox && (
+          <div className="aviso aviso-ok">
+            <Icono nombre="check" />
+            <span>
+              Desde el celular, subí tus audios a la carpeta{" "}
+              <strong>ClassRecorder_Inbox</strong> de tu Drive. Después usá
+              «Sincronizar desde el celular» acá o en la pantalla de Grabar para
+              traerlos. Lo ya importado se archiva en la subcarpeta{" "}
+              <code>importados</code>.
+            </span>
+            <button
+              className="btn btn-mini"
+              onClick={() => void revealItemInDir(config.carpetaInbox!)}
+            >
+              Abrir carpeta
+            </button>
+          </div>
+        )}
+      </div>
+
       <div className="tarjeta">
         <h3 className="titulo-seccion">Respaldo</h3>
         <p className="sutil" style={{ marginBottom: 14 }}>

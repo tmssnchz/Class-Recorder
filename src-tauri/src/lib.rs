@@ -1,4 +1,5 @@
 mod descargas;
+mod importar;
 mod respaldo;
 mod transcripcion;
 
@@ -135,6 +136,10 @@ pub fn run() {
             descargas::instalar_faster_whisper,
             respaldo::medir_respaldo,
             respaldo::exportar_respaldo,
+            importar::detectar_drive,
+            importar::escanear_inbox,
+            importar::archivar_importado,
+            importar::preparar_inbox,
             transcripcion::transcribir,
             transcripcion::transcribir_faster,
             transcripcion::cancelar_transcripcion,

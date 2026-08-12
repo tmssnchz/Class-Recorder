@@ -1280,6 +1280,37 @@ kbd {
   padding: 1px 6px;
 }
 
+/* --------------------------------------------------- importar del celular */
+
+.modal-sincronizar {
+  width: min(720px, 100%);
+}
+
+.lista-importacion {
+  max-height: 46vh;
+  overflow-y: auto;
+  margin: 12px 0;
+}
+
+/* Los dos selectores de cada archivo, apilados para que entren en la fila. */
+.selectores-fila {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 0 auto;
+  min-width: 190px;
+}
+
+.selectores-fila select {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.chip-ok {
+  background: color-mix(in srgb, var(--exito) 15%, transparent);
+  color: var(--exito);
+}
+
 /* ------------------------------------------------------------- materiales */
 
 .cabecera-materiales {
