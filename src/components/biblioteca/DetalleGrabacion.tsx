@@ -436,7 +436,7 @@ export function DetalleGrabacion({
       <ListaMateriales
         titulo="Material de esta grabación"
         materiales={materiales.propios}
-        vacio="Sin material propio. Podés agregar la foto del pizarrón o el apunte de esta clase puntual."
+        vacio="Sin material propio. Puedes agregar la foto del pizarrón o el apunte de esta clase puntual."
         destino={{
           carpetaRaiz: config.carpetaRaiz,
           claseNombre: grabacion.claseNombre,
@@ -479,7 +479,7 @@ export function DetalleGrabacion({
             transcribiendo
               ? "No se puede recortar mientras se transcribe"
               : convirtiendo
-                ? "Esperá a que termine de convertirse el audio"
+                ? "Espera a que termine de convertirse el audio"
                 : undefined
           }
           onClick={() => setRecortando(true)}

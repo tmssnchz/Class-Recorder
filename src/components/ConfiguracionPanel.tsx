@@ -892,8 +892,8 @@ export function ConfiguracionPanel() {
             <span>
               No encontré Google Drive para escritorio en esta máquina. Hace
               falta instalarlo y dejar que sincronice al menos una vez, para que
-              exista la carpeta en el disco. Si ya lo tenés instalado en otra
-              ubicación, elegí la carpeta a mano igual.
+              exista la carpeta en el disco. Si ya lo tienes instalado en otra
+              ubicación, elige la carpeta a mano igual.
             </span>
             <button
               className="btn btn-mini"
@@ -913,7 +913,7 @@ export function ConfiguracionPanel() {
               ) : drive && drive.candidatas.length > 0 ? (
                 `Se detectó tu Drive en ${drive.candidatas[0]}. Al elegirla se crea la subcarpeta ClassRecorder_Inbox adentro.`
               ) : (
-                "Elegí la carpeta raíz de tu Drive sincronizado. La subcarpeta ClassRecorder_Inbox se crea sola."
+                "Elige la carpeta raíz de tu Drive sincronizado. La subcarpeta ClassRecorder_Inbox se crea sola."
               )}
             </small>
           </div>
@@ -930,8 +930,8 @@ export function ConfiguracionPanel() {
           <div className="aviso aviso-ok">
             <Icono nombre="check" />
             <span>
-              Desde el celular, subí tus audios a la carpeta{" "}
-              <strong>ClassRecorder_Inbox</strong> de tu Drive. Después usá
+              Desde el celular, sube tus audios a la carpeta{" "}
+              <strong>ClassRecorder_Inbox</strong> de tu Drive. Después usa
               «Sincronizar desde el celular» acá o en la pantalla de Grabar para
               traerlos. Lo ya importado se archiva en la subcarpeta{" "}
               <code>importados</code>.

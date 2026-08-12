@@ -242,8 +242,8 @@ export function RecortarAudio({ grabacion, onCancelar, onListo }: Props) {
           mensaje={
             <p>
               Se va a borrar del disco la parte descartada del audio original
-              y no hay forma de recuperarla después. Si tenés dudas, cancelá
-              y usá "Copia nueva" primero para revisar el resultado.
+              y no hay forma de recuperarla después. Si tienes dudas, cancela
+              y usa "Copia nueva" primero para revisar el resultado.
             </p>
           }
           onConfirmar={() => void ejecutar(true)}

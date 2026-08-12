@@ -5,6 +5,7 @@ import { useStore } from "../estado/store";
 import { describirAtajo } from "../lib/atajos";
 import { formatearBytes, formatearDuracion } from "../lib/format";
 import { consultarEspacio, type EspacioDisco } from "../lib/grabaciones";
+import { bloqueEn } from "../lib/horario";
 import { SIN_CLASE, SIN_UNIDAD } from "../types";
 import { SincronizarCelular } from "./SincronizarCelular";
 import { Icono } from "./ui/Icono";
@@ -69,6 +70,20 @@ export function GrabarPanel() {
       vigente = false;
     };
   }, [config.carpetaRaiz, g.fase]);
+
+  /**
+   * Preselección por horario: si ahora mismo hay una clase según "Mi horario",
+   * se elige sola. Solo mientras no haya nada elegido todavía y no se esté
+   * grabando — es una sugerencia, no una imposición: cambiarla la respeta.
+   */
+  useEffect(() => {
+    if (activo || g.seleccion.claseId) return;
+    const bloque = bloqueEn(datos.horario, new Date());
+    if (bloque) g.elegirClase(bloque.claseId);
+    // Se corre al montar y al cambiar el horario; g queda fuera de las deps a
+    // propósito para no reactivar la sugerencia después de que la cambies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datos.horario, activo]);
 
   const horasQueEntran = espacio
     ? Math.floor(espacio.libreBytes / 1024 / 1024 / MB_POR_HORA)
@@ -154,7 +169,7 @@ export function GrabarPanel() {
       <div className="tarjeta">
         {activo && (
           <p className="sutil aviso-cambio-destino">
-            Podés cambiar la clase o la unidad sin cortar la grabación: el
+            Puedes cambiar la clase o la unidad sin cortar la grabación: el
             audio se mueve a la carpeta nueva sin perder nada.
           </p>
         )}
@@ -248,7 +263,7 @@ export function GrabarPanel() {
               <button
                 type="button"
                 className="btn-icono"
-                title={clase ? "Nueva unidad" : "Elegí una clase primero"}
+                title={clase ? "Nueva unidad" : "Elige una clase primero"}
                 disabled={bloqueado || !clase}
                 onClick={() => {
                   setCreandoUnidad((v) => !v);

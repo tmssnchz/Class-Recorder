@@ -4,6 +4,7 @@ import { BibliotecaPanel } from "./components/BibliotecaPanel";
 import { ClasesPanel } from "./components/ClasesPanel";
 import { ConfiguracionPanel } from "./components/ConfiguracionPanel";
 import { GrabarPanel } from "./components/GrabarPanel";
+import { HorarioPanel } from "./components/HorarioPanel";
 import { Icono } from "./components/ui/Icono";
 import { ProveedorGrabador, useGrabador } from "./estado/grabador";
 import { ProveedorStore, useStore } from "./estado/store";
@@ -12,16 +13,17 @@ import { useAtajos } from "./hooks/useAtajos";
 import { formatearDuracion } from "./lib/format";
 import "./styles.css";
 
-type Vista = "grabar" | "biblioteca" | "clases" | "config";
+type Vista = "grabar" | "biblioteca" | "clases" | "horario" | "config";
 
 const NAV: {
   id: Vista;
   etiqueta: string;
-  icono: "micro" | "biblioteca" | "clases" | "config";
+  icono: "micro" | "biblioteca" | "clases" | "horario" | "config";
 }[] = [
   { id: "grabar", etiqueta: "Grabar", icono: "micro" },
   { id: "biblioteca", etiqueta: "Biblioteca", icono: "biblioteca" },
   { id: "clases", etiqueta: "Clases", icono: "clases" },
+  { id: "horario", etiqueta: "Mi horario", icono: "horario" },
   { id: "config", etiqueta: "Configuración", icono: "config" },
 ];
 
@@ -126,6 +128,7 @@ function Contenido() {
         {vista === "grabar" && <GrabarPanel />}
         {vista === "clases" && <ClasesPanel />}
         {vista === "biblioteca" && <BibliotecaPanel />}
+        {vista === "horario" && <HorarioPanel />}
         {vista === "config" && <ConfiguracionPanel />}
       </main>
     </div>

@@ -25,6 +25,7 @@ import {
   type BaseDatos,
   type Config,
 } from "../types";
+import { PLANTILLA_PROMPT_POR_DEFECTO } from "./horario";
 import { unir } from "./paths";
 
 let carpetaApp: string | null = null;
@@ -106,8 +107,9 @@ export async function cargarDatos(): Promise<BaseDatos> {
       marcas: g.marcas ?? [],
       transcripcion: g.transcripcion ?? null,
     })),
-    // Campo agregado después: un datos.json anterior no lo trae.
+    // Campos agregados después: un datos.json anterior no los trae.
     materiales: datos.materiales ?? [],
+    horario: datos.horario ?? [],
   };
 }
 
@@ -123,13 +125,20 @@ async function rutaConfig(): Promise<string> {
 
 export async function cargarConfig(): Promise<Config> {
   const guardada = await leerJson<Partial<Config>>(await rutaConfig());
-  if (!guardada) return { ...CONFIG_POR_DEFECTO };
+  const base: Config = {
+    ...CONFIG_POR_DEFECTO,
+    plantillaPromptHorario: PLANTILLA_PROMPT_POR_DEFECTO,
+  };
+  if (!guardada) return base;
   // Merge contra los valores por defecto: al agregar opciones nuevas en el
   // futuro, una config vieja sigue siendo válida.
   return {
-    ...CONFIG_POR_DEFECTO,
+    ...base,
     ...guardada,
-    atajos: { ...CONFIG_POR_DEFECTO.atajos, ...(guardada.atajos ?? {}) },
+    atajos: { ...base.atajos, ...(guardada.atajos ?? {}) },
+    // Una config vieja trae la plantilla vacía: se rellena con la de fábrica.
+    plantillaPromptHorario:
+      guardada.plantillaPromptHorario || PLANTILLA_PROMPT_POR_DEFECTO,
   };
 }
 

@@ -29,6 +29,7 @@ import {
   type BaseDatos,
   type Clase,
   type Config,
+  type BloqueHorario,
   type Grabacion,
   type Material,
   type Unidad,
@@ -70,6 +71,9 @@ interface Store {
   agregarMaterial(material: Material): Promise<void>;
   quitarMaterial(id: string): Promise<void>;
   reemplazarMateriales(materiales: Material[]): Promise<void>;
+
+  // Horario semanal
+  guardarHorario(bloques: BloqueHorario[]): Promise<void>;
 
   actualizarConfig(cambios: CambiosConfig): Promise<void>;
   recargar(): Promise<void>;
@@ -222,6 +226,9 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
               !(m.unidadId && unidadIds.has(m.unidadId)) &&
               !(m.grabacionId && grabacionIds.has(m.grabacionId)),
           ),
+          // Un bloque de horario apuntando a una clase borrada dejaría de
+          // resolver a nada y ensuciaría la sugerencia automática.
+          horario: d.horario.filter((b) => b.claseId !== claseId),
         };
       });
     },
@@ -362,6 +369,13 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
     [mutarDatos],
   );
 
+  const guardarHorario = useCallback(
+    async (bloques: BloqueHorario[]) => {
+      await mutarDatos((d) => ({ ...d, horario: bloques }));
+    },
+    [mutarDatos],
+  );
+
   /** Reemplaza los materiales que cambiaron de ruta (al mover una grabación). */
   const reemplazarMateriales = useCallback(
     async (actualizados: Material[]) => {
@@ -393,6 +407,7 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
       agregarMaterial,
       quitarMaterial,
       reemplazarMateriales,
+      guardarHorario,
       actualizarConfig,
       recargar,
     }),
@@ -413,6 +428,7 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
       agregarMaterial,
       quitarMaterial,
       reemplazarMateriales,
+      guardarHorario,
       actualizarConfig,
       recargar,
     ],

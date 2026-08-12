@@ -139,11 +139,35 @@ export interface Material {
 
 export type NivelMaterial = "clase" | "unidad" | "grabacion";
 
+/**
+ * Un bloque del horario semanal. `dia` va de 1 (lunes) a 7 (domingo), como
+ * ISO-8601, para poder ordenar y comparar sin depender del nombre escrito.
+ */
+export interface BloqueHorario {
+  id: string;
+  dia: number;
+  /** "HH:mm" en 24 horas. */
+  inicio: string;
+  fin: string;
+  claseId: string;
+}
+
+export const DIAS_SEMANA = [
+  "lunes",
+  "martes",
+  "miércoles",
+  "jueves",
+  "viernes",
+  "sábado",
+  "domingo",
+] as const;
+
 export interface BaseDatos {
   version: number;
   clases: Clase[];
   grabaciones: Grabacion[];
   materiales: Material[];
+  horario: BloqueHorario[];
 }
 
 export interface Atajos {
@@ -181,6 +205,8 @@ export interface Config {
    * null = todavía no configuró la importación desde el celular.
    */
   carpetaInbox: string | null;
+  /** Plantilla editable del prompt para importar el horario con una IA externa. */
+  plantillaPromptHorario: string;
 }
 
 export const VERSION_BD = 1;
@@ -190,6 +216,7 @@ export const BASE_DATOS_VACIA: BaseDatos = {
   clases: [],
   grabaciones: [],
   materiales: [],
+  horario: [],
 };
 
 export const CONFIG_POR_DEFECTO: Config = {
@@ -212,6 +239,9 @@ export const CONFIG_POR_DEFECTO: Config = {
   umbralDiscoGB: 2,
   minutosSilencioAviso: 2,
   carpetaInbox: null,
+  // Se completa al cargar la config: la plantilla vive en lib/horario.ts para
+  // no tener el texto largo dando vueltas en el modelo de datos.
+  plantillaPromptHorario: "",
 };
 
 /** Paleta para asignar color a las clases nuevas. */

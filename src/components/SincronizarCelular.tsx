@@ -136,8 +136,8 @@ export function SincronizarCelular({ onCerrar }: Props) {
               {inestables.length === 1
                 ? "Un archivo todavía se está sincronizando"
                 : `${inestables.length} archivos todavía se están sincronizando`}{" "}
-              y se saltearon: {inestables.map((a) => a.nombre).join(", ")}. Esperá
-              a que Drive termine y volvé a sincronizar.
+              y se saltearon: {inestables.map((a) => a.nombre).join(", ")}. Espera
+              a que Drive termine y sincroniza de nuevo.
             </span>
           </div>
         )}
@@ -149,7 +149,7 @@ export function SincronizarCelular({ onCerrar }: Props) {
         ) : (
           <>
             <p className="sutil">
-              Elegí a qué clase va cada una. Se pueden dejar sin clasificar y
+              Elige a qué clase va cada una. Se pueden dejar sin clasificar y
               acomodarlas después desde la Biblioteca.
             </p>
 
