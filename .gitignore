@@ -26,6 +26,13 @@ dist-ssr
 # Config local de Claude Code: rutas absolutas de esta máquina, no del proyecto.
 .claude/
 
+# Skills de agente instaladas por el asistente (caveman/ponytail). Son
+# herramientas del entorno de desarrollo de esta máquina, no del proyecto:
+# ClassRecorder compila y corre sin ellas.
+.agents/
+agent/
+skills-lock.json
+
 # Rust: src-tauri/.gitignore ya cubre /target y /gen/schemas.
 # El sidecar de ffmpeg (~230 MB) se descarga aparte, ver README.
 src-tauri/binaries/
