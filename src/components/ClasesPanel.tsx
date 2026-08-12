@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useStore } from "../estado/store";
+import { materialesDeClase, materialesDeUnidad } from "../lib/materiales";
 import { sanitizarNombre, unir } from "../lib/paths";
 import type { Clase } from "../types";
 import { Icono } from "./ui/Icono";
+import { ListaMateriales } from "./ui/ListaMateriales";
 import { ModalConfirmacion } from "./ui/ModalConfirmacion";
 
 type Borrado =
@@ -28,6 +30,8 @@ export function ClasesPanel() {
   const [editando, setEditando] = useState<string | null>(null);
   const [borrado, setBorrado] = useState<Borrado | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Unidad abierta para ver/cargar su material. */
+  const [unidadSel, setUnidadSel] = useState<string | null>(null);
 
   const clase: Clase | undefined = useMemo(
     () => datos.clases.find((c) => c.id === seleccionada),
@@ -39,6 +43,13 @@ export function ClasesPanel() {
     if (!clase && datos.clases.length > 0) setSeleccionada(datos.clases[0].id);
     if (datos.clases.length === 0) setSeleccionada(null);
   }, [clase, datos.clases]);
+
+  const unidadSelObj = clase?.unidades.find((u) => u.id === unidadSel) ?? null;
+
+  // Cambiar de clase cierra la unidad que estaba abierta: pertenece a la otra.
+  useEffect(() => {
+    setUnidadSel(null);
+  }, [seleccionada]);
 
   const grabacionesDeClase = (claseId: string) =>
     datos.grabaciones.filter((g) => g.claseId === claseId).length;
@@ -253,13 +264,23 @@ export function ClasesPanel() {
                         />
                       ) : (
                         <>
-                          <div className="item-texto">
+                          <div
+                            className="item-texto"
+                            onClick={() =>
+                              setUnidadSel(unidadSel === u.id ? null : u.id)
+                            }
+                          >
                             <strong>{u.nombre}</strong>
                             <small className="sutil">
                               {grabacionesDeUnidad(u.id)}{" "}
                               {grabacionesDeUnidad(u.id) === 1
                                 ? "grabación"
                                 : "grabaciones"}
+                              {materialesDeUnidad(datos.materiales, u.id).length > 0
+                                ? ` · ${
+                                    materialesDeUnidad(datos.materiales, u.id).length
+                                  } material`
+                                : ""}
                             </small>
                           </div>
                           <div className="item-acciones">
@@ -290,6 +311,38 @@ export function ClasesPanel() {
                   ))}
                 </ul>
               )}
+
+              {unidadSelObj && (
+                <ListaMateriales
+                  key={unidadSelObj.id}
+                  titulo={`Material de ${unidadSelObj.nombre}`}
+                  materiales={materialesDeUnidad(datos.materiales, unidadSelObj.id)}
+                  vacio="Esta unidad todavía no tiene material."
+                  destino={{
+                    carpetaRaiz: config.carpetaRaiz,
+                    claseNombre: clase.nombre,
+                    unidadNombre: unidadSelObj.nombre,
+                    claseId: null,
+                    unidadId: unidadSelObj.id,
+                    grabacionId: null,
+                  }}
+                />
+              )}
+
+              <ListaMateriales
+                key={clase.id}
+                titulo={`Material de ${clase.nombre}`}
+                materiales={materialesDeClase(datos.materiales, clase.id)}
+                vacio="Esta clase todavía no tiene material. Sirve para el programa de la materia, la bibliografía, o cualquier apunte que valga para todas las unidades."
+                destino={{
+                  carpetaRaiz: config.carpetaRaiz,
+                  claseNombre: clase.nombre,
+                  unidadNombre: null,
+                  claseId: clase.id,
+                  unidadId: null,
+                  grabacionId: null,
+                }}
+              />
             </>
           )}
         </div>

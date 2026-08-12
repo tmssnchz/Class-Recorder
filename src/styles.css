@@ -1280,6 +1280,50 @@ kbd {
   padding: 1px 6px;
 }
 
+/* ------------------------------------------------------------- materiales */
+
+.cabecera-materiales {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.cabecera-materiales .titulo-seccion {
+  margin: 0;
+}
+
+/* Etiqueta de tipo de archivo: ancho fijo para que la lista quede alineada. */
+.chip-tipo {
+  flex: 0 0 auto;
+  width: 84px;
+  text-align: center;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  background: var(--superficie-2);
+  color: var(--texto-sutil);
+}
+
+.tipo-pdf {
+  background: var(--peligro-suave);
+  color: var(--peligro);
+}
+
+.tipo-imagen {
+  background: var(--primario-suave);
+  color: var(--primario);
+}
+
+.tipo-presentacion {
+  background: var(--aviso-suave);
+  color: var(--aviso);
+}
+
 /* Clase o unidad sin nada adentro: se muestra igual, con el motivo escrito. */
 .rama-vacia {
   margin: 0;

@@ -16,6 +16,12 @@ import {
   formatearHora,
 } from "../../lib/format";
 import { escribirMetaGrabacion } from "../../lib/grabaciones";
+import {
+  borrarArchivoMaterial,
+  materialesVisiblesDe,
+  moverMaterialesDeGrabacion,
+} from "../../lib/materiales";
+import { ListaMateriales } from "../ui/ListaMateriales";
 import { RecortarAudio } from "./RecortarAudio";
 import { SIN_CLASE, SIN_UNIDAD, type Grabacion } from "../../types";
 import { Icono } from "../ui/Icono";
@@ -39,8 +45,15 @@ export function DetalleGrabacion({
   onEliminada,
   onRecortada,
 }: Props) {
-  const { datos, config, agregarGrabacion, actualizarGrabacion, quitarGrabacion } =
-    useStore();
+  const {
+    datos,
+    config,
+    agregarGrabacion,
+    actualizarGrabacion,
+    quitarGrabacion,
+    quitarMaterial,
+    reemplazarMateriales,
+  } = useStore();
   const { tareas } = useTranscripciones();
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -68,6 +81,8 @@ export function DetalleGrabacion({
    * final escrito en la carpeta vieja: la transcripción arrancó con una copia
    * de las rutas de este momento. Se bloquea hasta que termine.
    */
+  const materiales = materialesVisiblesDe(datos.materiales, grabacion);
+
   const tareaActiva = tareas[grabacion.id];
   const transcribiendo = Boolean(tareaActiva && tareaActiva.estado !== "error");
   const bloqueadoPorArchivos = ocupado || transcribiendo;
@@ -111,14 +126,25 @@ export function DetalleGrabacion({
     const claseDestino = datos.clases.find((c) => c.id === claseId) ?? null;
     const unidadDestino =
       claseDestino?.unidades.find((u) => u.id === unidadId) ?? null;
+    const claseNombre = claseDestino?.nombre ?? SIN_CLASE;
+    const unidadNombre = unidadDestino?.nombre ?? SIN_UNIDAD;
     void conArchivos(async () => {
       const cambios = await moverGrabacion(grabacion, config.carpetaRaiz, {
         claseId: claseDestino?.id ?? null,
         unidadId: unidadDestino?.id ?? null,
-        claseNombre: claseDestino?.nombre ?? SIN_CLASE,
-        unidadNombre: unidadDestino?.nombre ?? SIN_UNIDAD,
+        claseNombre,
+        unidadNombre,
       });
       await actualizarGrabacion(grabacion.id, cambios);
+      // El material propio sigue al audio, igual que el .txt y el .json.
+      await reemplazarMateriales(
+        await moverMaterialesDeGrabacion(
+          materiales.propios,
+          config.carpetaRaiz,
+          claseNombre,
+          unidadNombre,
+        ),
+      );
     });
   };
 
@@ -140,7 +166,12 @@ export function DetalleGrabacion({
 
   const eliminar = (borrandoArchivos: boolean) => {
     void conArchivos(async () => {
-      if (borrandoArchivos) await borrarArchivos(grabacion);
+      if (borrandoArchivos) {
+        await borrarArchivos(grabacion);
+        // El material propio sigue la misma decisión que el audio.
+        for (const m of materiales.propios) await borrarArchivoMaterial(m);
+      }
+      for (const m of materiales.propios) await quitarMaterial(m.id);
       await quitarGrabacion(grabacion.id);
       setConfirmandoBorrado(false);
       onEliminada();
@@ -401,6 +432,30 @@ export function DetalleGrabacion({
           </ul>
         )}
       </div>
+
+      <ListaMateriales
+        titulo="Material de esta grabación"
+        materiales={materiales.propios}
+        vacio="Sin material propio. Podés agregar la foto del pizarrón o el apunte de esta clase puntual."
+        destino={{
+          carpetaRaiz: config.carpetaRaiz,
+          claseNombre: grabacion.claseNombre,
+          unidadNombre: grabacion.unidadNombre,
+          claseId: null,
+          unidadId: null,
+          grabacionId: grabacion.id,
+        }}
+      />
+
+      {/* Heredado: se ve acá pero se administra desde la pestaña Clases. */}
+      <ListaMateriales
+        titulo={`De la unidad ${grabacion.unidadNombre}`}
+        materiales={materiales.unidad}
+      />
+      <ListaMateriales
+        titulo={`De ${grabacion.claseNombre}`}
+        materiales={materiales.clase}
+      />
 
       <VistaTranscripcion
         grabacion={grabacion}

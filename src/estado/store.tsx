@@ -30,6 +30,7 @@ import {
   type Clase,
   type Config,
   type Grabacion,
+  type Material,
   type Unidad,
 } from "../types";
 
@@ -64,6 +65,11 @@ interface Store {
   agregarGrabacion(grabacion: Grabacion): Promise<void>;
   actualizarGrabacion(id: string, cambios: Partial<Grabacion>): Promise<void>;
   quitarGrabacion(id: string): Promise<void>;
+
+  // Material de estudio
+  agregarMaterial(material: Material): Promise<void>;
+  quitarMaterial(id: string): Promise<void>;
+  reemplazarMateriales(materiales: Material[]): Promise<void>;
 
   actualizarConfig(cambios: CambiosConfig): Promise<void>;
   recargar(): Promise<void>;
@@ -198,11 +204,26 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
    */
   const eliminarClase = useCallback(
     async (claseId: string) => {
-      await mutarDatos((d) => ({
-        ...d,
-        clases: d.clases.filter((c) => c.id !== claseId),
-        grabaciones: d.grabaciones.filter((g) => g.claseId !== claseId),
-      }));
+      await mutarDatos((d) => {
+        const clase = d.clases.find((c) => c.id === claseId);
+        const unidadIds = new Set((clase?.unidades ?? []).map((u) => u.id));
+        const grabacionIds = new Set(
+          d.grabaciones.filter((g) => g.claseId === claseId).map((g) => g.id),
+        );
+        return {
+          ...d,
+          clases: d.clases.filter((c) => c.id !== claseId),
+          grabaciones: d.grabaciones.filter((g) => g.claseId !== claseId),
+          // También el material de sus unidades y de sus grabaciones: si no,
+          // quedan entradas apuntando a una clase que ya no existe.
+          materiales: d.materiales.filter(
+            (m) =>
+              m.claseId !== claseId &&
+              !(m.unidadId && unidadIds.has(m.unidadId)) &&
+              !(m.grabacionId && grabacionIds.has(m.grabacionId)),
+          ),
+        };
+      });
     },
     [mutarDatos],
   );
@@ -265,15 +286,25 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
 
   const eliminarUnidad = useCallback(
     async (claseId: string, unidadId: string) => {
-      await mutarDatos((d) => ({
-        ...d,
-        clases: d.clases.map((c) =>
-          c.id === claseId
-            ? { ...c, unidades: c.unidades.filter((u) => u.id !== unidadId) }
-            : c,
-        ),
-        grabaciones: d.grabaciones.filter((g) => g.unidadId !== unidadId),
-      }));
+      await mutarDatos((d) => {
+        const grabacionIds = new Set(
+          d.grabaciones.filter((g) => g.unidadId === unidadId).map((g) => g.id),
+        );
+        return {
+          ...d,
+          clases: d.clases.map((c) =>
+            c.id === claseId
+              ? { ...c, unidades: c.unidades.filter((u) => u.id !== unidadId) }
+              : c,
+          ),
+          grabaciones: d.grabaciones.filter((g) => g.unidadId !== unidadId),
+          materiales: d.materiales.filter(
+            (m) =>
+              m.unidadId !== unidadId &&
+              !(m.grabacionId && grabacionIds.has(m.grabacionId)),
+          ),
+        };
+      });
     },
     [mutarDatos],
   );
@@ -312,6 +343,38 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
     [mutarDatos],
   );
 
+  // --------------------------------------------------------- materiales
+
+  const agregarMaterial = useCallback(
+    async (material: Material) => {
+      await mutarDatos((d) => ({ ...d, materiales: [...d.materiales, material] }));
+    },
+    [mutarDatos],
+  );
+
+  const quitarMaterial = useCallback(
+    async (id: string) => {
+      await mutarDatos((d) => ({
+        ...d,
+        materiales: d.materiales.filter((m) => m.id !== id),
+      }));
+    },
+    [mutarDatos],
+  );
+
+  /** Reemplaza los materiales que cambiaron de ruta (al mover una grabación). */
+  const reemplazarMateriales = useCallback(
+    async (actualizados: Material[]) => {
+      if (actualizados.length === 0) return;
+      const porId = new Map(actualizados.map((m) => [m.id, m]));
+      await mutarDatos((d) => ({
+        ...d,
+        materiales: d.materiales.map((m) => porId.get(m.id) ?? m),
+      }));
+    },
+    [mutarDatos],
+  );
+
   const valor = useMemo<Store>(
     () => ({
       datos,
@@ -327,6 +390,9 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
       agregarGrabacion,
       actualizarGrabacion,
       quitarGrabacion,
+      agregarMaterial,
+      quitarMaterial,
+      reemplazarMateriales,
       actualizarConfig,
       recargar,
     }),
@@ -344,6 +410,9 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
       agregarGrabacion,
       actualizarGrabacion,
       quitarGrabacion,
+      agregarMaterial,
+      quitarMaterial,
+      reemplazarMateriales,
       actualizarConfig,
       recargar,
     ],

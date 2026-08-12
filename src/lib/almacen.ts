@@ -106,6 +106,8 @@ export async function cargarDatos(): Promise<BaseDatos> {
       marcas: g.marcas ?? [],
       transcripcion: g.transcripcion ?? null,
     })),
+    // Campo agregado después: un datos.json anterior no lo trae.
+    materiales: datos.materiales ?? [],
   };
 }
 

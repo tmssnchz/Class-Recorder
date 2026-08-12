@@ -9,6 +9,7 @@
     "core:window:allow-destroy",
     "opener:default",
     "opener:allow-reveal-item-in-dir",
+    "opener:allow-open-path",
     "dialog:default",
     "dialog:allow-save",
     "dialog:allow-open",

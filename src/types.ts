@@ -104,10 +104,46 @@ export interface Grabacion {
   transcripcion: Transcripcion | null;
 }
 
+/** Extensiones que se aceptan como material de estudio. */
+export const EXTENSIONES_MATERIAL = [
+  "pdf",
+  "png",
+  "jpg",
+  "jpeg",
+  "md",
+  "ppt",
+  "pptx",
+  "doc",
+  "docx",
+] as const;
+
+/**
+ * Archivo de estudio (apunte, presentación, foto del pizarrón) copiado dentro
+ * de la carpeta de grabaciones para que el proyecto siga siendo portable.
+ *
+ * Cuelga de exactamente uno de los tres niveles: clase, unidad o grabación.
+ * Los otros dos campos quedan en null — es lo que permite mostrar el material
+ * de la clase y el de la unidad al abrir una grabación, sin mezclarlos.
+ */
+export interface Material {
+  id: string;
+  /** Nombre del archivo tal como quedó en disco (ya sin colisiones). */
+  nombre: string;
+  archivo: string; // ruta absoluta
+  bytes: number;
+  agregadoEn: string; // ISO
+  claseId: string | null;
+  unidadId: string | null;
+  grabacionId: string | null;
+}
+
+export type NivelMaterial = "clase" | "unidad" | "grabacion";
+
 export interface BaseDatos {
   version: number;
   clases: Clase[];
   grabaciones: Grabacion[];
+  materiales: Material[];
 }
 
 export interface Atajos {
@@ -148,6 +184,7 @@ export const BASE_DATOS_VACIA: BaseDatos = {
   version: VERSION_BD,
   clases: [],
   grabaciones: [],
+  materiales: [],
 };
 
 export const CONFIG_POR_DEFECTO: Config = {
