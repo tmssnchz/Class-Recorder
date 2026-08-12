@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useGrabador } from "../estado/grabador";
 import { useStore } from "../estado/store";
+import { construirArbol } from "../lib/arbol";
 import { buscarEnTranscripciones, type Coincidencia } from "../lib/busqueda";
 import { formatearDuracion, formatearFecha, formatearHora } from "../lib/format";
-import { SIN_CLASE, type Grabacion } from "../types";
+import { type Grabacion } from "../types";
 import { Calendario } from "./biblioteca/Calendario";
 import { DetalleGrabacion } from "./biblioteca/DetalleGrabacion";
 import { Pendientes } from "./biblioteca/Pendientes";
@@ -61,6 +62,8 @@ export function BibliotecaPanel() {
     return [...set].sort();
   }, [datos.grabaciones]);
 
+  const hayFiltros = Boolean(busqueda || filtroClase || filtroTag);
+
   const filtradas = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     return datos.grabaciones
@@ -82,38 +85,10 @@ export function BibliotecaPanel() {
       );
   }, [datos.grabaciones, busqueda, filtroClase, filtroTag]);
 
-  /** Árbol clase › unidad › grabaciones, respetando el orden de las clases. */
-  const arbol = useMemo(() => {
-    const grupos: {
-      claveClase: string;
-      nombre: string;
-      color: string;
-      unidades: { claveUnidad: string; nombre: string; items: Grabacion[] }[];
-    }[] = [];
-
-    for (const g of filtradas) {
-      const claveClase = g.claseId ?? SIN_CLASE;
-      let clase = grupos.find((x) => x.claveClase === claveClase);
-      if (!clase) {
-        clase = {
-          claveClase,
-          nombre: g.claseNombre,
-          color:
-            datos.clases.find((c) => c.id === g.claseId)?.color ?? "#8b93a1",
-          unidades: [],
-        };
-        grupos.push(clase);
-      }
-      const claveUnidad = g.unidadId ?? g.unidadNombre;
-      let unidad = clase.unidades.find((u) => u.claveUnidad === claveUnidad);
-      if (!unidad) {
-        unidad = { claveUnidad, nombre: g.unidadNombre, items: [] };
-        clase.unidades.push(unidad);
-      }
-      unidad.items.push(g);
-    }
-    return grupos;
-  }, [filtradas, datos.clases]);
+  const arbol = useMemo(
+    () => construirArbol(datos.clases, filtradas, hayFiltros),
+    [filtradas, datos.clases, hayFiltros],
+  );
 
   const grabacion = datos.grabaciones.find((g) => g.id === seleccionada) ?? null;
 
@@ -123,8 +98,6 @@ export function BibliotecaPanel() {
       setSeleccionada(null);
     }
   }, [datos.grabaciones, seleccionada]);
-
-  const hayFiltros = Boolean(busqueda || filtroClase || filtroTag);
 
   return (
     <section className="panel panel-ancho">
@@ -224,9 +197,10 @@ export function BibliotecaPanel() {
         </div>
       )}
 
-      {datos.grabaciones.length === 0 ? (
+      {datos.grabaciones.length === 0 && datos.clases.length === 0 ? (
         <p className="vacio">
-          Todavía no hay grabaciones. Empieza por la pestaña Grabar.
+          Todavía no hay nada. Crea una clase en la pestaña Clases, o graba
+          directamente desde Grabar.
         </p>
       ) : (
         <div className="biblioteca-layout">
@@ -246,8 +220,12 @@ export function BibliotecaPanel() {
                 onSeleccionar={setSeleccionada}
               />
             ) : vista === "arbol" ? (
-              filtradas.length === 0 ? (
-                <p className="vacio">Ninguna grabación coincide con el filtro.</p>
+              arbol.length === 0 ? (
+                <p className="vacio">
+                  {hayFiltros
+                    ? "Ninguna grabación coincide con el filtro."
+                    : "Todavía no hay clases ni grabaciones."}
+                </p>
               ) : (
                 arbol.map((clase) => (
                   <details key={clase.claveClase} open className="grupo">
@@ -264,24 +242,34 @@ export function BibliotecaPanel() {
                         )}
                       </span>
                     </summary>
-                    {clase.unidades.map((unidad) => (
-                      <details key={unidad.claveUnidad} open className="subgrupo">
-                        <summary>
-                          {unidad.nombre}
-                          <span className="sutil">{unidad.items.length}</span>
-                        </summary>
-                        <ul className="lista">
-                          {unidad.items.map((g) => (
-                            <FilaGrabacion
-                              key={g.id}
-                              grabacion={g}
-                              activa={g.id === seleccionada}
-                              onClick={() => setSeleccionada(g.id)}
-                            />
-                          ))}
-                        </ul>
-                      </details>
-                    ))}
+                    {clase.unidades.length === 0 ? (
+                      <p className="rama-vacia sutil">
+                        Esta clase no tiene unidades todavía.
+                      </p>
+                    ) : (
+                      clase.unidades.map((unidad) => (
+                        <details key={unidad.claveUnidad} open className="subgrupo">
+                          <summary>
+                            {unidad.nombre}
+                            <span className="sutil">{unidad.items.length}</span>
+                          </summary>
+                          {unidad.items.length === 0 ? (
+                            <p className="rama-vacia sutil">Sin grabaciones.</p>
+                          ) : (
+                            <ul className="lista">
+                              {unidad.items.map((g) => (
+                                <FilaGrabacion
+                                  key={g.id}
+                                  grabacion={g}
+                                  activa={g.id === seleccionada}
+                                  onClick={() => setSeleccionada(g.id)}
+                                />
+                              ))}
+                            </ul>
+                          )}
+                        </details>
+                      ))
+                    )}
                   </details>
                 ))
               )

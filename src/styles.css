@@ -1280,6 +1280,14 @@ kbd {
   padding: 1px 6px;
 }
 
+/* Clase o unidad sin nada adentro: se muestra igual, con el motivo escrito. */
+.rama-vacia {
+  margin: 0;
+  padding: 6px 0 8px 22px;
+  font-size: 12px;
+  font-style: italic;
+}
+
 .cabecera-pendientes {
   display: flex;
   align-items: center;
