@@ -1,7 +1,15 @@
 import { useEffect, useState } from "react";
 
 import { useStore } from "../estado/store";
+import { fechaEmbebida } from "../lib/audio";
+import {
+  ETIQUETA_ORIGEN,
+  estimarFecha,
+  sugerirClase,
+  type FechaEstimada,
+} from "../lib/fechaAudio";
 import { formatearBytes, formatearFecha, formatearHora } from "../lib/format";
+import { bloqueEn } from "../lib/horario";
 import {
   archivarImportado,
   escanearInbox,
@@ -18,6 +26,10 @@ interface Fila {
   unidadId: string | null;
   estado: "pendiente" | "importando" | "listo" | "error";
   mensaje?: string;
+  /** Cuándo se estimó que se grabó, y de qué señal salió esa estimación. */
+  estimada: FechaEstimada;
+  /** true si la clase la propuso el horario y el usuario todavía no la tocó. */
+  sugerida: boolean;
 }
 
 interface Props {
@@ -25,7 +37,7 @@ interface Props {
 }
 
 export function SincronizarCelular({ onCerrar }: Props) {
-  const { datos, config, agregarGrabacion } = useStore();
+  const { datos, config, agregarGrabacion, actualizarConfig } = useStore();
   const [escaneando, setEscaneando] = useState(true);
   const [filas, setFilas] = useState<Fila[]>([]);
   const [inestables, setInestables] = useState<ArchivoInbox[]>([]);
@@ -39,16 +51,30 @@ export function SincronizarCelular({ onCerrar }: Props) {
       try {
         const encontrados = await escanearInbox(config.carpetaInbox);
         if (!vigente) return;
-        setFilas(
-          encontrados
-            .filter((a) => a.estable)
-            .map((archivo) => ({
-              archivo,
-              claseId: null,
-              unidadId: null,
-              estado: "pendiente" as const,
-            })),
-        );
+
+        const estables = encontrados.filter((a) => a.estable);
+        const armadas: Fila[] = [];
+        for (const archivo of estables) {
+          // La metadata es la señal más confiable: se lee antes que nada.
+          const metadata = await fechaEmbebida(archivo.ruta);
+          const estimada = estimarFecha(
+            archivo.nombre,
+            archivo.llegadaMs,
+            metadata,
+            config.usarHoraDeSubida === true,
+          );
+          const claseId = sugerirClase(estimada, datos.horario, bloqueEn);
+          armadas.push({
+            archivo,
+            claseId,
+            unidadId: null,
+            estado: "pendiente",
+            estimada,
+            sugerida: claseId !== null,
+          });
+        }
+        if (!vigente) return;
+        setFilas(armadas);
         setInestables(encontrados.filter((a) => !a.estable));
       } catch (e) {
         if (vigente) setError(e instanceof Error ? e.message : String(e));
@@ -59,7 +85,9 @@ export function SincronizarCelular({ onCerrar }: Props) {
     return () => {
       vigente = false;
     };
-  }, [config.carpetaInbox]);
+    // Se re-escanea si cambia el permiso de usar la hora de subida: eso puede
+    // convertir un "sin fecha confiable" en una sugerencia válida.
+  }, [config.carpetaInbox, config.usarHoraDeSubida, datos.horario]);
 
   const actualizar = (ruta: string, cambios: Partial<Fila>) =>
     setFilas((fs) => fs.map((f) => (f.archivo.ruta === ruta ? { ...f, ...cambios } : f)));
@@ -83,9 +111,7 @@ export function SincronizarCelular({ onCerrar }: Props) {
             unidadId: unidad?.id ?? null,
             claseNombre: clase?.nombre ?? SIN_CLASE,
             unidadNombre: unidad?.nombre ?? SIN_UNIDAD,
-            // Sin horario configurado todavía, la referencia es la hora de
-            // llegada del archivo. El paso de sugerencia la va a afinar.
-            fecha: new Date(fila.archivo.llegadaMs),
+            fecha: fila.estimada.fecha,
           },
           config,
         );
@@ -110,6 +136,9 @@ export function SincronizarCelular({ onCerrar }: Props) {
 
   const pendientes = filas.filter((f) => f.estado !== "listo").length;
   const listas = filas.filter((f) => f.estado === "listo").length;
+  const sinFechaConfiable = filas.filter(
+    (f) => f.estimada.origen === "ninguna",
+  ).length;
 
   return (
     <div className="modal-fondo" onClick={importando ? undefined : onCerrar}>
@@ -142,6 +171,38 @@ export function SincronizarCelular({ onCerrar }: Props) {
           </div>
         )}
 
+        {/*
+          Solo se pregunta si de verdad hace falta: si la metadata o el nombre
+          resolvieron la fecha de todos los archivos, este aviso no aparece.
+        */}
+        {sinFechaConfiable > 0 && config.usarHoraDeSubida !== true && (
+          <div className="aviso aviso-info">
+            <Icono nombre="alerta" />
+            <span>
+              No pude determinar la hora de grabación de{" "}
+              {sinFechaConfiable === 1
+                ? "un archivo"
+                : `${sinFechaConfiable} archivos`}
+              : no traen fecha adentro ni en el nombre. ¿Uso la hora en que se
+              subieron como referencia para sugerir la clase?
+              <span className="acciones-aviso">
+                <button
+                  className="btn btn-mini"
+                  onClick={() => void actualizarConfig({ usarHoraDeSubida: true })}
+                >
+                  Usar la hora de subida
+                </button>
+                <button
+                  className="btn btn-mini"
+                  onClick={() => void actualizarConfig({ usarHoraDeSubida: false })}
+                >
+                  Asignar a mano
+                </button>
+              </span>
+            </span>
+          </div>
+        )}
+
         {escaneando ? (
           <p className="sutil">Buscando grabaciones nuevas…</p>
         ) : filas.length === 0 ? (
@@ -162,10 +223,21 @@ export function SincronizarCelular({ onCerrar }: Props) {
                     <div className="item-texto">
                       <strong>{f.archivo.nombre}</strong>
                       <small className="sutil">
-                        {formatearBytes(f.archivo.bytes)} · llegó el{" "}
-                        {formatearFecha(new Date(f.archivo.llegadaMs).toISOString())}{" "}
-                        a las{" "}
-                        {formatearHora(new Date(f.archivo.llegadaMs).toISOString())}
+                        {formatearBytes(f.archivo.bytes)} ·{" "}
+                        {f.estimada.origen === "ninguna" ? (
+                          "sin fecha confiable"
+                        ) : (
+                          <>
+                            {formatearFecha(f.estimada.fecha.toISOString())} a las{" "}
+                            {formatearHora(f.estimada.fecha.toISOString())}{" "}
+                            <span className="origen-fecha">
+                              ({ETIQUETA_ORIGEN[f.estimada.origen]})
+                            </span>
+                          </>
+                        )}
+                        {f.sugerida && f.claseId && (
+                          <span className="chip chip-mini">sugerida por horario</span>
+                        )}
                       </small>
                       {f.mensaje && (
                         <small className="error-inline">{f.mensaje}</small>
@@ -185,6 +257,8 @@ export function SincronizarCelular({ onCerrar }: Props) {
                             actualizar(f.archivo.ruta, {
                               claseId: e.target.value || null,
                               unidadId: null,
+                              // Tocarla deja de ser una sugerencia del horario.
+                              sugerida: false,
                             })
                           }
                         >

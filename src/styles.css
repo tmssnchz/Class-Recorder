@@ -1282,6 +1282,80 @@ kbd {
   margin-left: 6px;
 }
 
+/* -------------------------------------------------------- color de clase */
+
+.envoltorio-color {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.punto-boton {
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.punto-boton:hover {
+  outline: 2px solid var(--borde);
+  outline-offset: 2px;
+}
+
+.selector-color {
+  position: absolute;
+  top: 20px;
+  left: 0;
+  z-index: 40;
+  width: 210px;
+  padding: 10px;
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+  cursor: default;
+}
+
+.paleta {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.muestra {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.muestra:hover {
+  transform: scale(1.12);
+}
+
+.muestra.elegido {
+  border-color: var(--texto);
+}
+
+/* Diagonal sobre los colores que ya usa otra clase: en el calendario dos
+   clases del mismo color no se distinguen. */
+.muestra.en-uso {
+  opacity: 0.45;
+  background-image: linear-gradient(
+    45deg,
+    transparent 44%,
+    var(--superficie) 44%,
+    var(--superficie) 56%,
+    transparent 56%
+  );
+}
+
+.selector-color .form-linea input {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
 /* ---------------------------------------------------------------- horario */
 
 .acciones-cabecera {
@@ -1417,6 +1491,17 @@ kbd {
 .chip-ok {
   background: color-mix(in srgb, var(--exito) 15%, transparent);
   color: var(--exito);
+}
+
+/* De qué señal salió la fecha estimada: visible pero en segundo plano. */
+.origen-fecha {
+  opacity: 0.75;
+}
+
+.acciones-aviso {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 /* ------------------------------------------------------------- materiales */

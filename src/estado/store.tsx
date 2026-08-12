@@ -53,6 +53,7 @@ interface Store {
   // Clases y unidades
   agregarClase(nombre: string): Promise<Clase>;
   renombrarClase(claseId: string, nombre: string): Promise<void>;
+  cambiarColorClase(claseId: string, color: string): Promise<void>;
   eliminarClase(claseId: string): Promise<void>;
   agregarUnidad(claseId: string, nombre: string): Promise<Unidad>;
   renombrarUnidad(
@@ -170,10 +171,18 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
       ) {
         throw new Error(`Ya existe una clase llamada "${limpio}".`);
       }
+      // Primer color de la paleta que no esté en uso, en vez de rotar por
+      // posición: así al borrar y crear clases no se repiten colores mientras
+      // queden libres.
+      const usados = new Set(datosRef.current.clases.map((c) => c.color));
+      const color =
+        COLORES_CLASE.find((c) => !usados.has(c)) ??
+        COLORES_CLASE[datosRef.current.clases.length % COLORES_CLASE.length];
+
       const clase: Clase = {
         id: nuevoId(),
         nombre: limpio,
-        color: COLORES_CLASE[datosRef.current.clases.length % COLORES_CLASE.length],
+        color,
         creadaEn: new Date().toISOString(),
         unidades: [],
       };
@@ -197,6 +206,19 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
       await mutarDatos((d) => ({
         ...d,
         clases: d.clases.map((c) => (c.id === claseId ? { ...c, nombre: limpio } : c)),
+      }));
+    },
+    [mutarDatos],
+  );
+
+  const cambiarColorClase = useCallback(
+    async (claseId: string, color: string) => {
+      if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
+        throw new Error("El color tiene que ser un hexadecimal como #2f6fed.");
+      }
+      await mutarDatos((d) => ({
+        ...d,
+        clases: d.clases.map((c) => (c.id === claseId ? { ...c, color } : c)),
       }));
     },
     [mutarDatos],
@@ -397,6 +419,7 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
       error,
       agregarClase,
       renombrarClase,
+      cambiarColorClase,
       eliminarClase,
       agregarUnidad,
       renombrarUnidad,
@@ -418,6 +441,7 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
       error,
       agregarClase,
       renombrarClase,
+      cambiarColorClase,
       eliminarClase,
       agregarUnidad,
       renombrarUnidad,

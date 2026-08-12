@@ -207,6 +207,17 @@ export interface Config {
   carpetaInbox: string | null;
   /** Plantilla editable del prompt para importar el horario con una IA externa. */
   plantillaPromptHorario: string;
+  /**
+   * Con qué se graban los audios que se importan. Se pregunta una sola vez, la
+   * primera vez que un nombre de archivo no trae fecha reconocible.
+   * null = todavía no se preguntó.
+   */
+  origenGrabaciones: "iphone" | "android" | "otro" | null;
+  /**
+   * true = el usuario aceptó usar la hora de subida cuando no hay mejor señal.
+   * null = todavía no se preguntó.
+   */
+  usarHoraDeSubida: boolean | null;
 }
 
 export const VERSION_BD = 1;
@@ -242,16 +253,24 @@ export const CONFIG_POR_DEFECTO: Config = {
   // Se completa al cargar la config: la plantilla vive en lib/horario.ts para
   // no tener el texto largo dando vueltas en el modelo de datos.
   plantillaPromptHorario: "",
+  origenGrabaciones: null,
+  usarHoraDeSubida: null,
 };
 
 /** Paleta para asignar color a las clases nuevas. */
+/**
+ * Paleta por defecto. Diez tonos elegidos para distinguirse entre sí también
+ * como puntos chicos en el calendario, donde solo se ve el color.
+ */
 export const COLORES_CLASE = [
-  "#2f6fed",
-  "#12a594",
-  "#d4682a",
-  "#8b5cf6",
-  "#e0407a",
-  "#3f8f3f",
-  "#c9a227",
-  "#5a6b7d",
+  "#2f6fed", // azul
+  "#12a594", // verde azulado
+  "#d4682a", // naranja
+  "#8b5cf6", // violeta
+  "#e0407a", // rosa
+  "#3f8f3f", // verde
+  "#c9a227", // mostaza
+  "#0891b2", // celeste
+  "#b4413c", // rojo ladrillo
+  "#5a6b7d", // gris azulado
 ];

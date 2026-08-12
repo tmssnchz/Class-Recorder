@@ -6,6 +6,7 @@ import { sanitizarNombre, unir } from "../lib/paths";
 import type { Clase } from "../types";
 import { Icono } from "./ui/Icono";
 import { ListaMateriales } from "./ui/ListaMateriales";
+import { SelectorColor } from "./ui/SelectorColor";
 import { ModalConfirmacion } from "./ui/ModalConfirmacion";
 
 type Borrado =
@@ -18,6 +19,7 @@ export function ClasesPanel() {
     config,
     agregarClase,
     renombrarClase,
+    cambiarColorClase,
     eliminarClase,
     agregarUnidad,
     renombrarUnidad,
@@ -32,6 +34,8 @@ export function ClasesPanel() {
   const [error, setError] = useState<string | null>(null);
   /** Unidad abierta para ver/cargar su material. */
   const [unidadSel, setUnidadSel] = useState<string | null>(null);
+  /** Id de la clase cuyo selector de color está abierto. */
+  const [colorAbierto, setColorAbierto] = useState<string | null>(null);
 
   const clase: Clase | undefined = useMemo(
     () => datos.clases.find((c) => c.id === seleccionada),
@@ -148,7 +152,32 @@ export function ClasesPanel() {
                   className={`item ${c.id === seleccionada ? "activo" : ""}`}
                   onClick={() => setSeleccionada(c.id)}
                 >
-                  <span className="punto" style={{ background: c.color }} />
+                  <span className="envoltorio-color">
+                    <button
+                      className="punto punto-boton"
+                      style={{ background: c.color }}
+                      title="Cambiar color"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setColorAbierto(colorAbierto === c.id ? null : c.id);
+                      }}
+                    />
+                    {colorAbierto === c.id && (
+                      <SelectorColor
+                        color={c.color}
+                        usados={datos.clases
+                          .filter((x) => x.id !== c.id)
+                          .map((x) => x.color)}
+                        onElegir={(color) =>
+                          void intentar(async () => {
+                            await cambiarColorClase(c.id, color);
+                            setColorAbierto(null);
+                          })
+                        }
+                        onCerrar={() => setColorAbierto(null)}
+                      />
+                    )}
+                  </span>
                   {editando === c.id ? (
                     <EdicionNombre
                       valor={c.nombre}

@@ -93,6 +93,39 @@ export function duracionDe(entrada: string): Promise<number> {
   });
 }
 
+/**
+ * Fecha de grabación embebida en el archivo, si la trae.
+ *
+ * Es la señal más confiable para saber cuándo se grabó un audio importado: los
+ * m4a de Voice Memos y la mayoría de las apps de Android escriben
+ * `creation_time` en UTC. ffmpeg lo imprime en el encabezado por stderr.
+ * Devuelve null si el archivo no la tiene.
+ */
+export function fechaEmbebida(entrada: string): Promise<Date | null> {
+  return new Promise((resolver) => {
+    const cmd = Command.sidecar(SIDECAR, ["-hide_banner", "-i", entrada]);
+    let stderr = "";
+    cmd.stderr.on("data", (linea) => {
+      stderr += linea;
+    });
+    cmd.on("close", () => {
+      const m = /creation_time\s*:\s*(\S+)/.exec(stderr);
+      if (!m) {
+        resolver(null);
+        return;
+      }
+      const fecha = new Date(m[1]);
+      // Algunos archivos traen la etiqueta con un valor placeholder de 1904
+      // (época de QuickTime): no sirve como fecha de grabación.
+      resolver(
+        Number.isNaN(fecha.getTime()) || fecha.getFullYear() < 2000 ? null : fecha,
+      );
+    });
+    cmd.on("error", () => resolver(null));
+    cmd.spawn().catch(() => resolver(null));
+  });
+}
+
 /** Convierte la grabación cruda (.webm/Opus) al formato final elegido por el usuario. */
 export function convertirAudio(
   entrada: string,
