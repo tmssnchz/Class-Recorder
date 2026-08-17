@@ -15,6 +15,13 @@ export type OrigenFecha = "metadata" | "nombre" | "llegada" | "ninguna";
 export interface FechaEstimada {
   fecha: Date;
   origen: OrigenFecha;
+  /**
+   * false cuando la fecha es real pero la hora no: por ejemplo un WhatsApp
+   * "AUD-20260807-WA0001" solo trae el día, y la hora quedó en medianoche por
+   * default. Sugerir una clase con esa hora inventada casi nunca acierta, así
+   * que `sugerirClase` la trata igual que si no hubiera fecha confiable.
+   */
+  horaConfiable: boolean;
 }
 
 /** Marca de qué teléfono salen los audios, para no adivinar el patrón cada vez. */
@@ -57,8 +64,8 @@ function fechaValida(
   return fecha.getMonth() === mes - 1 && fecha.getDate() === d ? fecha : null;
 }
 
-/** Busca una fecha dentro del nombre del archivo. null si no hay ninguna. */
-export function fechaDesdeNombre(nombre: string): Date | null {
+/** Busca una fecha (y si la trae, hora) dentro del nombre del archivo. */
+function buscarEnNombre(nombre: string): { fecha: Date; conHora: boolean } | null {
   for (const { re, conHora } of PATRONES) {
     const m = re.exec(nombre);
     if (!m) continue;
@@ -66,9 +73,14 @@ export function fechaDesdeNombre(nombre: string): Date | null {
     const fecha = conHora
       ? fechaValida(n[0], n[1], n[2], n[3], n[4], n[5] ?? 0)
       : fechaValida(n[0], n[1], n[2]);
-    if (fecha) return fecha;
+    if (fecha) return { fecha, conHora };
   }
   return null;
+}
+
+/** Busca una fecha dentro del nombre del archivo. null si no hay ninguna. */
+export function fechaDesdeNombre(nombre: string): Date | null {
+  return buscarEnNombre(nombre)?.fecha ?? null;
 }
 
 /**
@@ -85,14 +97,17 @@ export function estimarFecha(
   fechaMetadata: Date | null,
   permitirLlegada: boolean,
 ): FechaEstimada {
-  if (fechaMetadata) return { fecha: fechaMetadata, origen: "metadata" };
+  if (fechaMetadata) return { fecha: fechaMetadata, origen: "metadata", horaConfiable: true };
 
-  const delNombre = fechaDesdeNombre(nombre);
-  if (delNombre) return { fecha: delNombre, origen: "nombre" };
+  const delNombre = buscarEnNombre(nombre);
+  if (delNombre) {
+    return { fecha: delNombre.fecha, origen: "nombre", horaConfiable: delNombre.conHora };
+  }
 
   return {
     fecha: new Date(llegadaMs),
     origen: permitirLlegada ? "llegada" : "ninguna",
+    horaConfiable: permitirLlegada,
   };
 }
 
@@ -106,15 +121,17 @@ export const ETIQUETA_ORIGEN: Record<OrigenFecha, string> = {
 /**
  * Clase sugerida para un archivo, cruzando su fecha estimada contra el horario.
  *
- * Solo se sugiere cuando la fecha es confiable: con `origen: "ninguna"` se
- * devuelve null a propósito, para que el selector quede vacío en vez de
- * proponer una clase basada en una hora que no sabemos si es la real.
+ * Solo se sugiere cuando la fecha Y la hora son confiables: con
+ * `origen: "ninguna"` o `horaConfiable: false` se devuelve null a propósito,
+ * para que el selector quede vacío en vez de proponer una clase basada en una
+ * hora que no sabemos si es la real (por ejemplo medianoche por default en un
+ * nombre que solo trae el día).
  */
 export function sugerirClase(
   estimada: FechaEstimada,
   horario: BloqueHorario[],
   bloqueEn: (h: BloqueHorario[], momento: Date) => BloqueHorario | null,
 ): string | null {
-  if (estimada.origen === "ninguna") return null;
+  if (estimada.origen === "ninguna" || !estimada.horaConfiable) return null;
   return bloqueEn(horario, estimada.fecha)?.claseId ?? null;
 }

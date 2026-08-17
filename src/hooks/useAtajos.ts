@@ -48,11 +48,11 @@ export function useAtajos(): { erroresAtajos: string[] } {
     }
   }, []);
 
-  const { atajos, atajosGlobales } = config;
+  const { atajos, atajosGlobales, atajosActivos } = config;
 
   // ------------------------------------------------------- modo local
   useEffect(() => {
-    if (atajosGlobales) return;
+    if (!atajosActivos || atajosGlobales) return;
     const alTeclear = (e: KeyboardEvent) => {
       if (escribiendoEnCampo(e.target)) return;
       const pares: [Accion, string][] = [
@@ -71,11 +71,11 @@ export function useAtajos(): { erroresAtajos: string[] } {
     };
     window.addEventListener("keydown", alTeclear);
     return () => window.removeEventListener("keydown", alTeclear);
-  }, [atajos, atajosGlobales, ejecutar]);
+  }, [atajos, atajosGlobales, atajosActivos, ejecutar]);
 
   // ------------------------------------------------------- modo global
   useEffect(() => {
-    if (!atajosGlobales) {
+    if (!atajosActivos || !atajosGlobales) {
       setErroresAtajos([]);
       return;
     }
@@ -121,7 +121,7 @@ export function useAtajos(): { erroresAtajos: string[] } {
         void unregister(acelerador).catch(() => undefined);
       }
     };
-  }, [atajos, atajosGlobales, ejecutar]);
+  }, [atajos, atajosGlobales, atajosActivos, ejecutar]);
 
   return { erroresAtajos };
 }

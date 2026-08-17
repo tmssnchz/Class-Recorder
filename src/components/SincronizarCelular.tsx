@@ -228,10 +228,16 @@ export function SincronizarCelular({ onCerrar }: Props) {
                           "sin fecha confiable"
                         ) : (
                           <>
-                            {formatearFecha(f.estimada.fecha.toISOString())} a las{" "}
-                            {formatearHora(f.estimada.fecha.toISOString())}{" "}
+                            {formatearFecha(f.estimada.fecha.toISOString())}
+                            {f.estimada.horaConfiable && (
+                              <> a las {formatearHora(f.estimada.fecha.toISOString())}</>
+                            )}{" "}
                             <span className="origen-fecha">
-                              ({ETIQUETA_ORIGEN[f.estimada.origen]})
+                              (
+                              {f.estimada.horaConfiable
+                                ? ETIQUETA_ORIGEN[f.estimada.origen]
+                                : "fecha en el nombre, sin hora"}
+                              )
                             </span>
                           </>
                         )}

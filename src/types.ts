@@ -194,6 +194,8 @@ export interface Config {
   atajos: Atajos;
   /** true = los atajos se registran a nivel sistema y funcionan con la app minimizada. */
   atajosGlobales: boolean;
+  /** false = ningún atajo se registra. Útil en teclados compactos con muchos choques. */
+  atajosActivos: boolean;
   umbralDiscoGB: number;
   /**
    * Minutos de silencio seguidos que disparan el aviso de "¿micrófono
@@ -247,6 +249,7 @@ export const CONFIG_POR_DEFECTO: Config = {
     marcar: "F8",
   },
   atajosGlobales: true,
+  atajosActivos: true,
   umbralDiscoGB: 2,
   minutosSilencioAviso: 2,
   carpetaInbox: null,

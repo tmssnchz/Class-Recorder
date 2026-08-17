@@ -513,50 +513,91 @@ export function ConfiguracionPanel() {
 
         <div className="ajuste">
           <div className="ajuste-texto">
-            <strong>Funcionan con la app minimizada</strong>
+            <strong>Usar atajos de teclado</strong>
             <small className="sutil">
-              Si están activos a nivel sistema, ninguna otra aplicación puede usar
-              esas teclas mientras ClassRecorder esté abierto.
+              Apágalos si tu teclado no tiene teclas suficientes sin choques con
+              funciones del sistema (volumen, brillo, etc.).
             </small>
           </div>
           <div className="conmutador">
             <button
-              className={config.atajosGlobales ? "activo" : ""}
-              onClick={() => void actualizarConfig({ atajosGlobales: true })}
+              className={config.atajosActivos ? "activo" : ""}
+              onClick={() => void actualizarConfig({ atajosActivos: true })}
             >
-              Sistema
+              Activos
             </button>
             <button
-              className={!config.atajosGlobales ? "activo" : ""}
-              onClick={() => void actualizarConfig({ atajosGlobales: false })}
+              className={!config.atajosActivos ? "activo" : ""}
+              onClick={() => void actualizarConfig({ atajosActivos: false })}
             >
-              Solo la ventana
+              Apagados
             </button>
           </div>
         </div>
 
-        {(
-          [
-            ["grabar", "Iniciar grabación"],
-            ["pausar", "Pausar o reanudar"],
-            ["detener", "Detener y guardar"],
-            ["marcar", "Marcar momento"],
-          ] as [keyof Atajos, string][]
-        ).map(([clave, etiqueta]) => (
-          <div className="ajuste" key={clave}>
-            <div className="ajuste-texto">
-              <strong>{etiqueta}</strong>
+        {config.atajosActivos && (
+          <>
+            <div className="ajuste">
+              <div className="ajuste-texto">
+                <strong>Funcionan con la app minimizada</strong>
+                <small className="sutil">
+                  Si están activos a nivel sistema, ninguna otra aplicación puede
+                  usar esas teclas mientras ClassRecorder esté abierto.
+                </small>
+              </div>
+              <div className="conmutador">
+                <button
+                  className={config.atajosGlobales ? "activo" : ""}
+                  onClick={() => void actualizarConfig({ atajosGlobales: true })}
+                >
+                  Sistema
+                </button>
+                <button
+                  className={!config.atajosGlobales ? "activo" : ""}
+                  onClick={() => void actualizarConfig({ atajosGlobales: false })}
+                >
+                  Solo la ventana
+                </button>
+              </div>
             </div>
-            <button
-              className={`btn tecla ${capturando === clave ? "capturando" : ""}`}
-              onClick={() => setCapturando(capturando === clave ? null : clave)}
-            >
-              {capturando === clave
-                ? "Pulsa una combinación…"
-                : describirAtajo(config.atajos[clave])}
-            </button>
-          </div>
-        ))}
+
+            {(
+              [
+                ["grabar", "Iniciar grabación"],
+                ["pausar", "Pausar o reanudar"],
+                ["detener", "Detener y guardar"],
+                ["marcar", "Marcar momento"],
+              ] as [keyof Atajos, string][]
+            ).map(([clave, etiqueta]) => (
+              <div className="ajuste" key={clave}>
+                <div className="ajuste-texto">
+                  <strong>{etiqueta}</strong>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    className={`btn tecla ${capturando === clave ? "capturando" : ""}`}
+                    onClick={() => setCapturando(capturando === clave ? null : clave)}
+                  >
+                    {capturando === clave
+                      ? "Pulsa una combinación…"
+                      : describirAtajo(config.atajos[clave])}
+                  </button>
+                  {config.atajos[clave] && (
+                    <button
+                      className="btn btn-mini"
+                      title="Dejar sin asignar"
+                      onClick={() =>
+                        void actualizarConfig({ atajos: { [clave]: "" } })
+                      }
+                    >
+                      Quitar
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </>
+        )}
       </div>
 
       {/* --------------------------------------------------- transcripción */}
