@@ -1,6 +1,6 @@
 [package]
 name = "class-recorder"
-version = "0.1.0"
+version = "0.2.0"
 description = "Grabador, organizador y transcriptor de clases universitarias"
 authors = ["Tomas"]
 edition = "2021"
