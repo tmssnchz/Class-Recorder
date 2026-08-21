@@ -1,6 +1,6 @@
 [package]
 name = "class-recorder"
-version = "0.1.0"
+version = "0.2.0"
 description = "Grabador, organizador y transcriptor de clases universitarias"
 authors = ["Tomas"]
 edition = "2021"
@@ -41,6 +41,11 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # vienen de ahí (tauri::webview::PlatformWebview::controller).
 [target.'cfg(target_os = "windows")'.dependencies]
 webview2-com = "0.38"
+# Detecta y fuerza la hidratación de placeholders de OneDrive (Archivos bajo demanda).
+windows = { version = "0.61", features = [
+  "Win32_Storage_FileSystem",
+  "Win32_Foundation",
+] }
 
 [profile.release]
 codegen-units = 1

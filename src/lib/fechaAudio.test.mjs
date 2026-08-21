@@ -36,6 +36,10 @@ import { estimarFecha, fechaDesdeNombre, sugerirClase } from "./fechaAudio.ts";
   assert.ok(f);
   assert.equal(f.getDate(), 7);
   assert.equal(f.getHours(), 0, "sin hora en el nombre queda a medianoche");
+
+  // Esa medianoche inventada no debe alcanzar para sugerir una clase.
+  const estimada = estimarFecha("PTT-20260807-WA0001.opus", Date.now(), null, true);
+  assert.equal(estimada.horaConfiable, false, "fecha sin hora no es confiable");
 }
 
 // --- nombres sin fecha ---------------------------------------------------
@@ -86,18 +90,26 @@ import { estimarFecha, fechaDesdeNombre, sugerirClase } from "./fechaAudio.ts";
     { id: "b1", dia: 5, inicio: "14:00", fin: "16:00", claseId: "micro" },
   ];
   // Viernes 7 de agosto de 2026, 14:30.
-  const dentro = { fecha: new Date(2026, 7, 7, 14, 30), origen: "nombre" };
+  const dentro = { fecha: new Date(2026, 7, 7, 14, 30), origen: "nombre", horaConfiable: true };
   assert.equal(sugerirClase(dentro, horario, bloqueEn), "micro");
 
-  const fuera = { fecha: new Date(2026, 7, 7, 18, 0), origen: "nombre" };
+  const fuera = { fecha: new Date(2026, 7, 7, 18, 0), origen: "nombre", horaConfiable: true };
   assert.equal(sugerirClase(fuera, horario, bloqueEn), null);
 
   // Aunque la hora caiga dentro del bloque, sin fecha confiable no se sugiere.
-  const noConfiable = { fecha: new Date(2026, 7, 7, 14, 30), origen: "ninguna" };
+  const noConfiable = { fecha: new Date(2026, 7, 7, 14, 30), origen: "ninguna", horaConfiable: false };
   assert.equal(
     sugerirClase(noConfiable, horario, bloqueEn),
     null,
     "sin fecha confiable no se adivina la clase",
+  );
+
+  // Fecha real pero sin hora (WhatsApp): tampoco se adivina.
+  const sinHora = { fecha: new Date(2026, 7, 7, 0, 0), origen: "nombre", horaConfiable: false };
+  assert.equal(
+    sugerirClase(sinHora, horario, bloqueEn),
+    null,
+    "fecha sin hora tampoco sugiere",
   );
 }
 

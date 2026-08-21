@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useGrabador } from "../estado/grabador";
 import { useStore } from "../estado/store";
+import { esPlaceholder } from "../lib/almacenamiento";
 import { construirArbol } from "../lib/arbol";
 import { buscarEnTranscripciones, type Coincidencia } from "../lib/busqueda";
 import { formatearDuracion, formatearFecha, formatearHora } from "../lib/format";
@@ -23,13 +24,17 @@ export function BibliotecaPanel() {
   const [filtroTag, setFiltroTag] = useState<string | null>(null);
   const [diaSeleccionado, setDiaSeleccionado] = useState<string | null>(null);
   const [seleccionada, setSeleccionada] = useState<string | null>(null);
+  // Colapsado por defecto; se pierde al reiniciar (no vale la pena persistirlo).
+  const [expandidas, setExpandidas] = useState<Set<string>>(new Set());
   const [enTranscripciones, setEnTranscripciones] = useState(false);
   const [coincidencias, setCoincidencias] = useState<Map<string, Coincidencia>>(
     new Map(),
   );
   const [buscando, setBuscando] = useState(false);
 
-  const hayTranscripciones = datos.grabaciones.some((g) => g.transcripcion);
+  const hayTranscripciones = datos.grabaciones.some(
+    (g) => g.transcripcion || g.notaClase,
+  );
   const sinTranscribir = datos.grabaciones.filter(
     (g) => !g.transcripcion && g.estado !== "convirtiendo",
   ).length;
@@ -76,7 +81,8 @@ export function BibliotecaPanel() {
           g.claseNombre.toLowerCase().includes(q) ||
           g.unidadNombre.toLowerCase().includes(q) ||
           g.tags.some((t) => t.includes(q)) ||
-          g.marcas.some((m) => m.nota.toLowerCase().includes(q))
+          g.marcas.some((m) => m.nota.toLowerCase().includes(q)) ||
+          g.notaClase.toLowerCase().includes(q)
         );
       })
       .sort(
@@ -89,6 +95,26 @@ export function BibliotecaPanel() {
     () => construirArbol(datos.clases, filtradas, hayFiltros),
     [filtradas, datos.clases, hayFiltros],
   );
+
+  const alternarExpandida = (clave: string) => {
+    setExpandidas((prev) => {
+      const copia = new Set(prev);
+      if (copia.has(clave)) copia.delete(clave);
+      else copia.add(clave);
+      return copia;
+    });
+  };
+
+  const expandirTodo = () => {
+    const todas = new Set<string>();
+    for (const c of arbol) {
+      todas.add(c.claveClase);
+      for (const u of c.unidades) todas.add(u.claveUnidad);
+    }
+    setExpandidas(todas);
+  };
+
+  const colapsarTodo = () => setExpandidas(new Set());
 
   const grabacion = datos.grabaciones.find((g) => g.id === seleccionada) ?? null;
 
@@ -175,7 +201,7 @@ export function BibliotecaPanel() {
             onChange={(e) => setEnTranscripciones(e.target.checked)}
           />
           <span>
-            Buscar dentro del texto de las transcripciones
+            Buscar dentro del texto de las transcripciones y las notas de clase
             {enTranscripciones && busqueda.trim().length < 3
               ? " (escribe al menos 3 letras)"
               : ""}
@@ -227,51 +253,90 @@ export function BibliotecaPanel() {
                     : "Todavía no hay clases ni grabaciones."}
                 </p>
               ) : (
-                arbol.map((clase) => (
-                  <details key={clase.claveClase} open className="grupo">
-                    <summary>
-                      <span
-                        className="punto"
-                        style={{ background: clase.color }}
-                      />
-                      {clase.nombre}
-                      <span className="sutil">
-                        {clase.unidades.reduce(
-                          (n, u) => n + u.items.length,
-                          0,
+                <>
+                  {!hayFiltros && (
+                    <div className="arbol-acciones">
+                      <button className="btn btn-mini" onClick={expandirTodo}>
+                        Expandir todo
+                      </button>
+                      <button className="btn btn-mini" onClick={colapsarTodo}>
+                        Colapsar todo
+                      </button>
+                    </div>
+                  )}
+                  {arbol.map((clase) => {
+                    // Con un filtro activo se fuerza todo abierto: si no, un
+                    // resultado quedaría escondido detrás de una clase colapsada.
+                    const claseAbierta = hayFiltros || expandidas.has(clase.claveClase);
+                    return (
+                      <details
+                        key={clase.claveClase}
+                        open={claseAbierta}
+                        onToggle={(e) => {
+                          if (hayFiltros) return;
+                          alternarExpandida(clase.claveClase);
+                          e.stopPropagation();
+                        }}
+                        className="grupo"
+                      >
+                        <summary>
+                          <span
+                            className="punto"
+                            style={{ background: clase.color }}
+                          />
+                          {clase.nombre}
+                          <span className="sutil">
+                            {clase.unidades.reduce(
+                              (n, u) => n + u.items.length,
+                              0,
+                            )}
+                          </span>
+                        </summary>
+                        {clase.unidades.length === 0 ? (
+                          <p className="rama-vacia sutil">
+                            Esta clase no tiene unidades todavía.
+                          </p>
+                        ) : (
+                          clase.unidades.map((unidad) => {
+                            const unidadAbierta =
+                              hayFiltros || expandidas.has(unidad.claveUnidad);
+                            return (
+                              <details
+                                key={unidad.claveUnidad}
+                                open={unidadAbierta}
+                                onToggle={(e) => {
+                                  if (hayFiltros) return;
+                                  alternarExpandida(unidad.claveUnidad);
+                                  e.stopPropagation();
+                                }}
+                                className="subgrupo"
+                              >
+                                <summary>
+                                  {unidad.nombre}
+                                  <span className="sutil">{unidad.items.length}</span>
+                                </summary>
+                                {unidad.items.length === 0 ? (
+                                  <p className="rama-vacia sutil">Sin grabaciones.</p>
+                                ) : (
+                                  <ul className="lista">
+                                    {unidad.items.map((g) => (
+                                      <FilaGrabacion
+                                        key={g.id}
+                                        grabacion={g}
+                                        activa={g.id === seleccionada}
+                                        onClick={() => setSeleccionada(g.id)}
+                                      />
+                                    ))}
+                                  </ul>
+                                )}
+                              </details>
+                            );
+                          })
                         )}
-                      </span>
-                    </summary>
-                    {clase.unidades.length === 0 ? (
-                      <p className="rama-vacia sutil">
-                        Esta clase no tiene unidades todavía.
-                      </p>
-                    ) : (
-                      clase.unidades.map((unidad) => (
-                        <details key={unidad.claveUnidad} open className="subgrupo">
-                          <summary>
-                            {unidad.nombre}
-                            <span className="sutil">{unidad.items.length}</span>
-                          </summary>
-                          {unidad.items.length === 0 ? (
-                            <p className="rama-vacia sutil">Sin grabaciones.</p>
-                          ) : (
-                            <ul className="lista">
-                              {unidad.items.map((g) => (
-                                <FilaGrabacion
-                                  key={g.id}
-                                  grabacion={g}
-                                  activa={g.id === seleccionada}
-                                  onClick={() => setSeleccionada(g.id)}
-                                />
-                              ))}
-                            </ul>
-                          )}
-                        </details>
-                      ))
-                    )}
-                  </details>
-                ))
+                      </details>
+                    );
+                  })}
+                </>
               )
             ) : (
               <Calendario
@@ -378,6 +443,24 @@ function FilaGrabacion({
   mostrarClase?: boolean;
   onClick(): void;
 }) {
+  const { config } = useStore();
+  // Solo OneDrive deja placeholders; en local o Google Drive nunca hace falta consultar.
+  const [enNube, setEnNube] = useState(false);
+
+  useEffect(() => {
+    if (config.modoAlmacenamiento !== "onedrive") {
+      setEnNube(false);
+      return;
+    }
+    let vigente = true;
+    void esPlaceholder(grabacion.archivoAudio)
+      .then((p) => vigente && setEnNube(p))
+      .catch(() => undefined);
+    return () => {
+      vigente = false;
+    };
+  }, [grabacion.archivoAudio, config.modoAlmacenamiento]);
+
   return (
     <li className={`item ${activa ? "activo" : ""}`} onClick={onClick}>
       <div className="item-texto">
@@ -395,6 +478,11 @@ function FilaGrabacion({
           {grabacion.transcripcion ? " · transcrita" : ""}
         </small>
       </div>
+      {enNube && (
+        <span className="chip" title="Solo en la nube: se descarga al reproducir">
+          <Icono nombre="nube" tamano={13} />
+        </span>
+      )}
       {grabacion.estado === "convirtiendo" && (
         <span className="chip">convirtiendo</span>
       )}

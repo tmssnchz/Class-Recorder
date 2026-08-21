@@ -1,9 +1,11 @@
 /**
- * Búsqueda de texto dentro de todas las transcripciones.
+ * Búsqueda de texto dentro de todas las transcripciones y las notas de clase.
  *
- * Los textos no se guardan en datos.json a propósito: una clase de dos horas son
- * unos 70 KB y con cien grabaciones el archivo de datos se volvería pesado de
- * leer en cada arranque. Se leen los .txt bajo demanda y se cachean en memoria.
+ * Las transcripciones no se guardan en datos.json a propósito: una clase de
+ * dos horas son unos 70 KB y con cien grabaciones el archivo de datos se
+ * volvería pesado de leer en cada arranque. Se leen los .txt bajo demanda y se
+ * cachean en memoria. La nota de clase en cambio ya vive en memoria (es un
+ * campo más de la grabación), así que se busca directo, sin leer nada.
  */
 import { exists, readTextFile } from "@tauri-apps/plugin-fs";
 
@@ -46,6 +48,30 @@ function fragmentoAlrededor(texto: string, indice: number, largo: number): strin
   return `${desde > 0 ? "…" : ""}${trozo}${hasta < texto.length ? "…" : ""}`;
 }
 
+/** Cuenta apariciones de `q` en `texto` y junta hasta `maxFragmentos` recortes. */
+function contarEnTexto(
+  texto: string,
+  q: string,
+  maxFragmentos: number,
+): { cantidad: number; fragmentos: string[] } {
+  const minusculas = texto.toLowerCase();
+  const fragmentos: string[] = [];
+  let cantidad = 0;
+  let desde = 0;
+
+  for (;;) {
+    const i = minusculas.indexOf(q, desde);
+    if (i === -1) break;
+    cantidad += 1;
+    if (fragmentos.length < maxFragmentos) {
+      fragmentos.push(fragmentoAlrededor(texto, i, q.length));
+    }
+    desde = i + q.length;
+  }
+
+  return { cantidad, fragmentos };
+}
+
 export async function buscarEnTranscripciones(
   grabaciones: Grabacion[],
   consulta: string,
@@ -55,28 +81,17 @@ export async function buscarEnTranscripciones(
   if (q.length < 3) return resultado;
 
   for (const g of grabaciones) {
-    if (!g.transcripcion) continue;
-    const texto = await textoDe(g);
-    if (!texto) continue;
+    const texto = g.transcripcion ? await textoDe(g) : "";
+    const enTranscripcion = texto ? contarEnTexto(texto, q, 3) : { cantidad: 0, fragmentos: [] };
+    const enNota = g.notaClase ? contarEnTexto(g.notaClase, q, 2) : { cantidad: 0, fragmentos: [] };
 
-    const minusculas = texto.toLowerCase();
-    const fragmentos: string[] = [];
-    let cantidad = 0;
-    let desde = 0;
+    const cantidad = enTranscripcion.cantidad + enNota.cantidad;
+    if (cantidad === 0) continue;
 
-    for (;;) {
-      const i = minusculas.indexOf(q, desde);
-      if (i === -1) break;
-      cantidad += 1;
-      if (fragmentos.length < 3) {
-        fragmentos.push(fragmentoAlrededor(texto, i, q.length));
-      }
-      desde = i + q.length;
-    }
-
-    if (cantidad > 0) {
-      resultado.set(g.id, { grabacionId: g.id, cantidad, fragmentos });
-    }
+    // Los de la nota primero: son más cortos y dan contexto más rápido que un
+    // recorte de transcripción.
+    const fragmentos = [...enNota.fragmentos, ...enTranscripcion.fragmentos].slice(0, 3);
+    resultado.set(g.id, { grabacionId: g.id, cantidad, fragmentos });
   }
 
   return resultado;

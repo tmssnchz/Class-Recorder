@@ -11,7 +11,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { exists, remove } from "@tauri-apps/plugin-fs";
 
 import { convertirAudio, duracionDe } from "./audio";
-import { escribirMetaGrabacion, prepararDestino, tamanoArchivo } from "./grabaciones";
+import {
+  escribirMetaGrabacion,
+  prepararDestino,
+  raizDeClase,
+  tamanoArchivo,
+} from "./grabaciones";
 import { SIN_CLASE, SIN_UNIDAD, type Config, type Grabacion } from "../types";
 
 export interface ArchivoInbox {
@@ -61,6 +66,8 @@ export async function importarAudio(
   rutaOrigen: string,
   destino: DestinoImportacion,
   config: Config,
+  /** Grabaciones ya indexadas: si la clase ya vive en otra raíz, se respeta. */
+  grabacionesExistentes: Grabacion[],
   onProgreso?: (fraccion: number) => void,
 ): Promise<Grabacion> {
   if (!(await exists(rutaOrigen))) {
@@ -69,13 +76,9 @@ export async function importarAudio(
 
   const claseNombre = destino.claseNombre || SIN_CLASE;
   const unidadNombre = destino.unidadNombre || SIN_UNIDAD;
+  const raiz = raizDeClase(grabacionesExistentes, destino.claseId, config.carpetaRaiz);
 
-  const d = await prepararDestino(
-    config.carpetaRaiz,
-    claseNombre,
-    unidadNombre,
-    destino.fecha,
-  );
+  const d = await prepararDestino(raiz, claseNombre, unidadNombre, destino.fecha);
 
   const duracionSeg = await duracionDe(rutaOrigen);
   const salida = `${d.carpeta}\\${d.base}.${config.formatoAudio}`;
@@ -111,6 +114,7 @@ export async function importarAudio(
     tags: ["importada"],
     marcas: [],
     transcripcion: null,
+    notaClase: "",
   };
 
   await escribirMetaGrabacion(grabacion);

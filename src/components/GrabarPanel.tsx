@@ -4,22 +4,24 @@ import { useGrabador } from "../estado/grabador";
 import { useStore } from "../estado/store";
 import { describirAtajo } from "../lib/atajos";
 import { formatearBytes, formatearDuracion } from "../lib/format";
-import { consultarEspacio, type EspacioDisco } from "../lib/grabaciones";
+import { consultarEspacio, escribirMetaGrabacion, type EspacioDisco } from "../lib/grabaciones";
 import { bloqueEn } from "../lib/horario";
-import { SIN_CLASE, SIN_UNIDAD } from "../types";
+import { SIN_CLASE, SIN_UNIDAD, type Grabacion } from "../types";
 import { SincronizarCelular } from "./SincronizarCelular";
 import { Icono } from "./ui/Icono";
 import { Medidor } from "./ui/Medidor";
 import { ModalConfirmacion } from "./ui/ModalConfirmacion";
+import { ModalNotaClase } from "./ui/ModalNotaClase";
 
 /** Opus mono a 64 kbps ≈ 28,8 MB por hora. Sirve para estimar cuánto entra. */
 const MB_POR_HORA = 28.8;
 const BYTES_POR_GB = 1024 ** 3;
 
 export function GrabarPanel() {
-  const { datos, config, agregarClase, agregarUnidad } = useStore();
+  const { datos, config, agregarClase, agregarUnidad, actualizarGrabacion } = useStore();
   const g = useGrabador();
   const [espacio, setEspacio] = useState<EspacioDisco | null>(null);
+  const [notaPendiente, setNotaPendiente] = useState<Grabacion | null>(null);
 
   const [creandoClase, setCreandoClase] = useState(false);
   const [nombreClaseNueva, setNombreClaseNueva] = useState("");
@@ -344,7 +346,12 @@ export function GrabarPanel() {
               </button>
               <button
                 className="btn btn-peligro"
-                onClick={() => void g.detener()}
+                onClick={() => {
+                  void (async () => {
+                    const nueva = await g.detener();
+                    if (nueva) setNotaPendiente(nueva);
+                  })();
+                }}
               >
                 Detener y guardar
                 <kbd>{describirAtajo(config.atajos.detener)}</kbd>
@@ -486,6 +493,20 @@ export function GrabarPanel() {
         onConfirmar={() => void g.detenerYCerrar()}
         onCancelar={g.cancelarCierre}
       />
+
+      {notaPendiente && (
+        <ModalNotaClase
+          subtitulo={`${notaPendiente.claseNombre} · ${notaPendiente.unidadNombre}`}
+          onOmitir={() => setNotaPendiente(null)}
+          onGuardar={(texto) => {
+            void (async () => {
+              await actualizarGrabacion(notaPendiente.id, { notaClase: texto });
+              await escribirMetaGrabacion({ ...notaPendiente, notaClase: texto });
+              setNotaPendiente(null);
+            })();
+          }}
+        />
+      )}
     </section>
   );
 }

@@ -16,9 +16,20 @@ interface Props {
    * de moverlo o borrarlo: Windows no permite renombrar un archivo abierto.
    */
   audioRef: RefObject<HTMLAudioElement | null>;
+  /**
+   * Se llama antes de reproducir. Si devuelve false (el audio está en la nube
+   * y el usuario no confirmó la descarga), no se reproduce.
+   */
+  antesDeReproducir?(): Promise<boolean>;
 }
 
-export function Reproductor({ src, duracionEstimada, marcas, audioRef }: Props) {
+export function Reproductor({
+  src,
+  duracionEstimada,
+  marcas,
+  audioRef,
+  antesDeReproducir,
+}: Props) {
   const [reproduciendo, setReproduciendo] = useState(false);
   const [posicion, setPosicion] = useState(0);
   const [duracion, setDuracion] = useState(duracionEstimada);
@@ -42,9 +53,15 @@ export function Reproductor({ src, duracionEstimada, marcas, audioRef }: Props) 
   const alternar = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    if (audio.paused) void audio.play().catch(() => setError(true));
-    else audio.pause();
-  }, [audioRef]);
+    if (!audio.paused) {
+      audio.pause();
+      return;
+    }
+    void (async () => {
+      if (antesDeReproducir && !(await antesDeReproducir())) return;
+      await audio.play().catch(() => setError(true));
+    })();
+  }, [audioRef, antesDeReproducir]);
 
   const saltarA = useCallback(
     (segundo: number) => {
