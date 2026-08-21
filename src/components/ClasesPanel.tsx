@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useStore } from "../estado/store";
+import { raizDeClase } from "../lib/grabaciones";
 import { materialesDeClase, materialesDeUnidad } from "../lib/materiales";
 import { sanitizarNombre, unir } from "../lib/paths";
 import type { Clase } from "../types";
@@ -40,6 +41,14 @@ export function ClasesPanel() {
   const clase: Clase | undefined = useMemo(
     () => datos.clases.find((c) => c.id === seleccionada),
     [datos.clases, seleccionada],
+  );
+
+  // Si la clase ya tiene grabaciones, su material va a la misma raíz que ellas
+  // (no a la raíz actual de la config, que puede ser otra tras un cambio de
+  // ubicación con "dejarlas donde están").
+  const raizClaseActual = useMemo(
+    () => raizDeClase(datos.grabaciones, clase?.id ?? null, config.carpetaRaiz),
+    [datos.grabaciones, clase?.id, config.carpetaRaiz],
   );
 
   // Al abrir el panel (o al borrar la clase activa) seleccionamos la primera.
@@ -244,7 +253,7 @@ export function ClasesPanel() {
                   {clase.nombre}
                 </h3>
                 <code className="ruta">
-                  {unir(config.carpetaRaiz, sanitizarNombre(clase.nombre))}
+                  {unir(raizClaseActual, sanitizarNombre(clase.nombre))}
                 </code>
               </div>
 
@@ -348,7 +357,7 @@ export function ClasesPanel() {
                   materiales={materialesDeUnidad(datos.materiales, unidadSelObj.id)}
                   vacio="Esta unidad todavía no tiene material."
                   destino={{
-                    carpetaRaiz: config.carpetaRaiz,
+                    carpetaRaiz: raizClaseActual,
                     claseNombre: clase.nombre,
                     unidadNombre: unidadSelObj.nombre,
                     claseId: null,
@@ -364,7 +373,7 @@ export function ClasesPanel() {
                 materiales={materialesDeClase(datos.materiales, clase.id)}
                 vacio="Esta clase todavía no tiene material. Sirve para el programa de la materia, la bibliografía, o cualquier apunte que valga para todas las unidades."
                 destino={{
-                  carpetaRaiz: config.carpetaRaiz,
+                  carpetaRaiz: raizClaseActual,
                   claseNombre: clase.nombre,
                   unidadNombre: null,
                   claseId: clase.id,
@@ -406,7 +415,14 @@ export function ClasesPanel() {
                   {grabacionesAfectadas === 1 ? "grabación" : "grabaciones"}{" "}
                   dejarán de aparecer en la biblioteca.{" "}
                   <strong>Los archivos de audio no se borran</strong>: siguen en{" "}
-                  <code>{config.carpetaRaiz}</code>.
+                  <code>
+                    {raizDeClase(
+                      datos.grabaciones,
+                      (borrado?.tipo === "clase" ? borrado.claseId : clase?.id) ?? null,
+                      config.carpetaRaiz,
+                    )}
+                  </code>
+                  .
                 </span>
               </p>
             )}

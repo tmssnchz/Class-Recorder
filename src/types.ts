@@ -102,6 +102,8 @@ export interface Grabacion {
   tags: string[];
   marcas: Marca[];
   transcripcion: Transcripcion | null;
+  /** Qué se conversó en la clase, escrita al detener o después desde el detalle. */
+  notaClase: string;
 }
 
 /** Extensiones que se aceptan como material de estudio. */
@@ -177,8 +179,15 @@ export interface Atajos {
   marcar: string;
 }
 
+/**
+ * Dónde vive la carpeta de grabaciones. Google Drive nunca queda en modo
+ * ahorro de espacio: siempre mantiene una copia completa en disco.
+ */
+export type ModoAlmacenamiento = "local" | "onedrive" | "googledrive";
+
 export interface Config {
   formatoAudio: FormatoAudio;
+  modoAlmacenamiento: ModoAlmacenamiento;
   carpetaRaiz: string;
   microfonoId: string | null;
   motorTranscripcion: MotorTranscripcion;
@@ -234,6 +243,7 @@ export const BASE_DATOS_VACIA: BaseDatos = {
 
 export const CONFIG_POR_DEFECTO: Config = {
   formatoAudio: "mp3",
+  modoAlmacenamiento: "local",
   carpetaRaiz: "C:\\ClassRecorder\\grabaciones",
   microfonoId: null,
   motorTranscripcion: "whisper.cpp",

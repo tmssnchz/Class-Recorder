@@ -15,7 +15,8 @@ type Nombre =
   | "tijera"
   | "abrir"
   | "celular"
-  | "horario";
+  | "horario"
+  | "nube";
 
 const TRAZOS: Record<Nombre, string> = {
   micro:
@@ -37,6 +38,7 @@ const TRAZOS: Record<Nombre, string> = {
   celular: "M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2ZM11 19h2",
   horario:
     "M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2ZM3 9h18M8 3v4M16 3v4M8 14h3",
+  nube: "M7 18a4 4 0 0 1-.6-7.95 5.5 5.5 0 0 1 10.6-1.55A4 4 0 0 1 16.5 18Z",
 };
 
 export function Icono({

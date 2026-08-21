@@ -682,6 +682,12 @@ kbd {
   margin-bottom: 12px;
 }
 
+.arbol-acciones {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
 .buscador {
   flex: 1;
   min-width: 0;

@@ -77,6 +77,12 @@ interface Store {
   guardarHorario(bloques: BloqueHorario[]): Promise<void>;
 
   actualizarConfig(cambios: CambiosConfig): Promise<void>;
+  /**
+   * Reescribe en el índice cada ruta absoluta que empezaba con `origenPrefijo`
+   * para que empiece con `destinoPrefijo`. Se usa tras mover en disco toda una
+   * carpeta raíz a una ubicación nueva.
+   */
+  remapearRaiz(origenPrefijo: string, destinoPrefijo: string): Promise<void>;
   recargar(): Promise<void>;
 }
 
@@ -411,6 +417,34 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
     [mutarDatos],
   );
 
+  /** Reescribe rutas absolutas tras mover toda una carpeta raíz de lugar. */
+  const remapearRaiz = useCallback(
+    async (origenPrefijo: string, destinoPrefijo: string) => {
+      const conPrefijo = (r: string) =>
+        r === origenPrefijo || r.startsWith(`${origenPrefijo}\\`);
+      const remapear = (r: string) =>
+        conPrefijo(r) ? destinoPrefijo + r.slice(origenPrefijo.length) : r;
+
+      await mutarDatos((d) => ({
+        ...d,
+        grabaciones: d.grabaciones.map((g) => ({
+          ...g,
+          archivoAudio: remapear(g.archivoAudio),
+          carpeta: remapear(g.carpeta),
+          transcripcion: g.transcripcion
+            ? {
+                ...g.transcripcion,
+                archivo: remapear(g.transcripcion.archivo),
+                archivoSegmentos: remapear(g.transcripcion.archivoSegmentos),
+              }
+            : null,
+        })),
+        materiales: d.materiales.map((m) => ({ ...m, archivo: remapear(m.archivo) })),
+      }));
+    },
+    [mutarDatos],
+  );
+
   const valor = useMemo<Store>(
     () => ({
       datos,
@@ -432,6 +466,7 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
       reemplazarMateriales,
       guardarHorario,
       actualizarConfig,
+      remapearRaiz,
       recargar,
     }),
     [
@@ -454,6 +489,7 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
       reemplazarMateriales,
       guardarHorario,
       actualizarConfig,
+      remapearRaiz,
       recargar,
     ],
   );

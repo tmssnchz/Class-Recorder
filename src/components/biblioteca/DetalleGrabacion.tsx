@@ -15,7 +15,7 @@ import {
   formatearFechaLarga,
   formatearHora,
 } from "../../lib/format";
-import { escribirMetaGrabacion } from "../../lib/grabaciones";
+import { escribirMetaGrabacion, raizDeClase } from "../../lib/grabaciones";
 import {
   borrarArchivoMaterial,
   materialesVisiblesDe,
@@ -26,7 +26,9 @@ import { RecortarAudio } from "./RecortarAudio";
 import { SIN_CLASE, SIN_UNIDAD, type Grabacion } from "../../types";
 import { Icono } from "../ui/Icono";
 import { ModalConfirmacion } from "../ui/ModalConfirmacion";
+import { ModalDescargaNube } from "../ui/ModalDescargaNube";
 import { Reproductor } from "../ui/Reproductor";
+import { useDescargaNube } from "../../hooks/useDescargaNube";
 
 interface Props {
   grabacion: Grabacion;
@@ -56,9 +58,17 @@ export function DetalleGrabacion({
   } = useStore();
   const { tareas } = useTranscripciones();
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const {
+    estado: estadoDescarga,
+    asegurar: asegurarAudio,
+    confirmar: confirmarDescarga,
+    cancelar: cancelarDescarga,
+    cerrar: cerrarDescarga,
+  } = useDescargaNube();
 
   const [editandoTitulo, setEditandoTitulo] = useState(false);
   const [titulo, setTitulo] = useState(grabacion.titulo);
+  const [notaClase, setNotaClase] = useState(grabacion.notaClase);
   const [tagNuevo, setTagNuevo] = useState("");
   const [confirmandoBorrado, setConfirmandoBorrado] = useState(false);
   const [recortando, setRecortando] = useState(false);
@@ -71,7 +81,8 @@ export function DetalleGrabacion({
     setTitulo(grabacion.titulo);
     setEditandoTitulo(false);
     setError(null);
-  }, [grabacion.id, grabacion.titulo]);
+    setNotaClase(grabacion.notaClase);
+  }, [grabacion.id, grabacion.titulo, grabacion.notaClase]);
 
   const clase = datos.clases.find((c) => c.id === grabacion.claseId) ?? null;
   const convirtiendo = grabacion.estado === "convirtiendo";
@@ -128,8 +139,11 @@ export function DetalleGrabacion({
       claseDestino?.unidades.find((u) => u.id === unidadId) ?? null;
     const claseNombre = claseDestino?.nombre ?? SIN_CLASE;
     const unidadNombre = unidadDestino?.nombre ?? SIN_UNIDAD;
+    // Si la clase destino ya tiene grabaciones en otra raíz, se respeta esa:
+    // así no queda una misma clase repartida entre dos carpetas del disco.
+    const raiz = raizDeClase(datos.grabaciones, claseDestino?.id ?? null, config.carpetaRaiz);
     void conArchivos(async () => {
-      const cambios = await moverGrabacion(grabacion, config.carpetaRaiz, {
+      const cambios = await moverGrabacion(grabacion, raiz, {
         claseId: claseDestino?.id ?? null,
         unidadId: unidadDestino?.id ?? null,
         claseNombre,
@@ -138,12 +152,7 @@ export function DetalleGrabacion({
       await actualizarGrabacion(grabacion.id, cambios);
       // El material propio sigue al audio, igual que el .txt y el .json.
       await reemplazarMateriales(
-        await moverMaterialesDeGrabacion(
-          materiales.propios,
-          config.carpetaRaiz,
-          claseNombre,
-          unidadNombre,
-        ),
+        await moverMaterialesDeGrabacion(materiales.propios, raiz, claseNombre, unidadNombre),
       );
     });
   };
@@ -303,8 +312,15 @@ export function DetalleGrabacion({
           duracionEstimada={grabacion.duracionSeg}
           marcas={grabacion.marcas}
           audioRef={audioRef}
+          antesDeReproducir={() => asegurarAudio(grabacion.archivoAudio)}
         />
       )}
+      <ModalDescargaNube
+        estado={estadoDescarga}
+        onConfirmar={confirmarDescarga}
+        onCancelar={cancelarDescarga}
+        onCerrar={cerrarDescarga}
+      />
 
       {transcribiendo && (
         <div className="aviso aviso-info">
@@ -386,6 +402,19 @@ export function DetalleGrabacion({
       </div>
 
       <div className="bloque">
+        <h3 className="titulo-seccion">Nota de la clase</h3>
+        <textarea
+          rows={4}
+          placeholder="¿Qué se conversó en esta clase?"
+          value={notaClase}
+          onChange={(e) => setNotaClase(e.target.value)}
+          onBlur={() => {
+            if (notaClase !== grabacion.notaClase) void guardar({ notaClase });
+          }}
+        />
+      </div>
+
+      <div className="bloque">
         <h3 className="titulo-seccion">
           Momentos marcados <span className="sutil">({grabacion.marcas.length})</span>
         </h3>
@@ -438,7 +467,7 @@ export function DetalleGrabacion({
         materiales={materiales.propios}
         vacio="Sin material propio. Puedes agregar la foto del pizarrón o el apunte de esta clase puntual."
         destino={{
-          carpetaRaiz: config.carpetaRaiz,
+          carpetaRaiz: raizDeClase(datos.grabaciones, grabacion.claseId, config.carpetaRaiz),
           claseNombre: grabacion.claseNombre,
           unidadNombre: grabacion.unidadNombre,
           claseId: null,

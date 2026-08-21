@@ -114,6 +114,7 @@ export function SincronizarCelular({ onCerrar }: Props) {
             fecha: fila.estimada.fecha,
           },
           config,
+          datos.grabaciones,
         );
 
         await agregarGrabacion(grabacion);

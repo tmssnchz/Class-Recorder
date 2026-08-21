@@ -106,6 +106,7 @@ export async function cargarDatos(): Promise<BaseDatos> {
       tags: g.tags ?? [],
       marcas: g.marcas ?? [],
       transcripcion: g.transcripcion ?? null,
+      notaClase: g.notaClase ?? "",
     })),
     // Campos agregados después: un datos.json anterior no los trae.
     materiales: datos.materiales ?? [],

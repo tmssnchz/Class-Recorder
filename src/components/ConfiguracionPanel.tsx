@@ -4,7 +4,17 @@ import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 
+import { useGrabador } from "../estado/grabador";
 import { carpetaDeDatos } from "../lib/almacen";
+import {
+  NOMBRE_CARPETA_ALMACEN,
+  URL_DESCARGA_ONEDRIVE,
+  crearCarpetaEnRaiz,
+  detectarOneDrive,
+  moverCarpetaGrabaciones,
+  type InfoOneDrive,
+} from "../lib/almacenamiento";
+import { consultarEspacio } from "../lib/grabaciones";
 import {
   URL_DESCARGA_DRIVE,
   detectarDrive,
@@ -43,6 +53,7 @@ import type {
   FormatoAudio,
   IdModelo,
   IdModeloFaster,
+  ModoAlmacenamiento,
 } from "../types";
 import { Icono } from "./ui/Icono";
 
@@ -69,7 +80,8 @@ interface ResumenRespaldo {
 const CLASE_TIPO_SEG = 7200;
 
 export function ConfiguracionPanel() {
-  const { config, actualizarConfig } = useStore();
+  const { datos, config, actualizarConfig, remapearRaiz } = useStore();
+  const { fase } = useGrabador();
 
   const [micros, setMicros] = useState<MediaDeviceInfo[]>([]);
   const [instalacion, setInstalacion] = useState<EstadoInstalacion>({
@@ -88,6 +100,21 @@ export function ConfiguracionPanel() {
   // Importación desde el celular
   const [drive, setDrive] = useState<InfoDrive | null>(null);
   const [errorInbox, setErrorInbox] = useState<string | null>(null);
+
+  // Ubicación de las grabaciones
+  const [oneDrive, setOneDrive] = useState<InfoOneDrive | null>(null);
+  const [errorAlmacen, setErrorAlmacen] = useState<string | null>(null);
+  const [pendienteMigracion, setPendienteMigracion] = useState<{
+    origen: string;
+    destino: string;
+  } | null>(null);
+  const [migrando, setMigrando] = useState<{
+    archivos: number;
+    totalArchivos: number;
+    bytes: number;
+    totalBytes: number;
+  } | null>(null);
+  const [errorMigracion, setErrorMigracion] = useState<string | null>(null);
 
   // Respaldo
   const [incluirAudio, setIncluirAudio] = useState(true);
@@ -144,8 +171,129 @@ export function ConfiguracionPanel() {
       title: "Carpeta donde guardar las grabaciones",
       defaultPath: config.carpetaRaiz,
     });
-    if (typeof elegida === "string") {
-      await actualizarConfig({ carpetaRaiz: elegida });
+    if (typeof elegida === "string") await cambiarUbicacion(elegida);
+  };
+
+  // ------------------------------------------------- ubicación de grabaciones
+
+  useEffect(() => {
+    void detectarOneDrive().then(setOneDrive).catch(() => setOneDrive(null));
+  }, []);
+
+  const elegirModoAlmacen = (modo: ModoAlmacenamiento) => {
+    setErrorAlmacen(null);
+    if (modo === "onedrive" && !oneDrive?.instalado) {
+      setErrorAlmacen(
+        "No se detectó OneDrive instalado en esta máquina. Instálalo y vuelve a intentar.",
+      );
+      return;
+    }
+    if (modo === "googledrive" && !drive?.instalado) {
+      setErrorAlmacen(
+        "No se detectó Google Drive para escritorio en esta máquina. Instálalo y vuelve a intentar.",
+      );
+      return;
+    }
+    void actualizarConfig({ modoAlmacenamiento: modo });
+  };
+
+  /**
+   * Punto único donde cambia `carpetaRaiz`. Si no hay grabaciones todavía se
+   * aplica directo; si hay, se pregunta primero qué hacer con las existentes.
+   */
+  const cambiarUbicacion = async (nuevaCarpeta: string) => {
+    if (nuevaCarpeta === config.carpetaRaiz) return;
+    if (fase !== "inactivo") {
+      setErrorAlmacen(
+        "Termina o descarta la grabación en curso antes de cambiar la ubicación.",
+      );
+      return;
+    }
+    if (datos.grabaciones.length === 0) {
+      await actualizarConfig({ carpetaRaiz: nuevaCarpeta });
+      return;
+    }
+    setPendienteMigracion({ origen: config.carpetaRaiz, destino: nuevaCarpeta });
+  };
+
+  const crearCarpetaAlmacenEn = async (raiz: string) => {
+    setErrorAlmacen(null);
+    try {
+      const carpeta = await crearCarpetaEnRaiz(raiz, NOMBRE_CARPETA_ALMACEN);
+      await cambiarUbicacion(carpeta);
+    } catch (e) {
+      setErrorAlmacen(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const elegirCarpetaAlmacenExistente = async () => {
+    setErrorAlmacen(null);
+    const elegida = await open({
+      directory: true,
+      title: "Elegir carpeta de grabaciones ya existente",
+      defaultPath: config.carpetaRaiz,
+    });
+    if (typeof elegida === "string") await cambiarUbicacion(elegida);
+  };
+
+  useEffect(() => {
+    const promesa = listen<{
+      tarea: string;
+      archivos: number;
+      totalArchivos: number;
+      bytes: number;
+      totalBytes: number;
+    }>("migracion://progreso", (e) => {
+      setMigrando((m) =>
+        m ? { ...m, archivos: e.payload.archivos, bytes: e.payload.bytes } : m,
+      );
+    });
+    return () => {
+      void promesa.then((quitar) => quitar());
+    };
+  }, []);
+
+  const dejarSinMover = async () => {
+    if (!pendienteMigracion) return;
+    await actualizarConfig({ carpetaRaiz: pendienteMigracion.destino });
+    setPendienteMigracion(null);
+  };
+
+  const moverTodoAhora = async () => {
+    if (!pendienteMigracion) return;
+    const { origen, destino } = pendienteMigracion;
+    setErrorMigracion(null);
+    try {
+      const resumen = await invoke<ResumenRespaldo>("medir_respaldo", {
+        carpetaRaiz: origen,
+        carpetaDatos: await carpetaDeDatos(),
+        incluirAudio: true,
+      });
+      const espacio = await consultarEspacio(destino);
+      // 5% de margen: por si el volumen de destino reserva algo de espacio.
+      if (espacio.libreBytes < resumen.bytes * 1.05) {
+        setErrorMigracion(
+          `No alcanza el espacio en el destino: hacen falta ${formatearBytes(
+            resumen.bytes,
+          )} y hay ${formatearBytes(espacio.libreBytes)} libres.`,
+        );
+        return;
+      }
+
+      setMigrando({
+        archivos: 0,
+        totalArchivos: resumen.archivos,
+        bytes: 0,
+        totalBytes: resumen.bytes,
+      });
+      await moverCarpetaGrabaciones(origen, destino, "migracion");
+      await remapearRaiz(origen, destino);
+      await actualizarConfig({ carpetaRaiz: destino });
+      setPendienteMigracion(null);
+    } catch (e) {
+      setErrorMigracion(e instanceof Error ? e.message : String(e));
+    } finally {
+      setMigrando(null);
     }
   };
 
@@ -417,15 +565,170 @@ export function ConfiguracionPanel() {
 
         <div className="ajuste">
           <div className="ajuste-texto">
-            <strong>Carpeta de grabaciones</strong>
+            <strong>Ubicación de las grabaciones</strong>
+            <small className="sutil">
+              OneDrive puede liberar espacio en disco automáticamente (Archivos
+              bajo demanda). Google Drive siempre mantiene una copia completa
+              en tu disco.
+            </small>
+          </div>
+          <div className="conmutador">
+            <button
+              className={config.modoAlmacenamiento === "local" ? "activo" : ""}
+              onClick={() => elegirModoAlmacen("local")}
+            >
+              Local
+            </button>
+            <button
+              className={
+                config.modoAlmacenamiento === "onedrive" ? "activo" : ""
+              }
+              onClick={() => elegirModoAlmacen("onedrive")}
+            >
+              OneDrive
+            </button>
+            <button
+              className={
+                config.modoAlmacenamiento === "googledrive" ? "activo" : ""
+              }
+              onClick={() => elegirModoAlmacen("googledrive")}
+            >
+              Google Drive
+            </button>
+          </div>
+        </div>
+
+        {errorAlmacen && (
+          <div className="aviso aviso-error">
+            <Icono nombre="alerta" />
+            <span>{errorAlmacen}</span>
+            <button className="btn-icono" onClick={() => setErrorAlmacen(null)}>
+              <Icono nombre="equis" tamano={16} />
+            </button>
+          </div>
+        )}
+
+        <div className="ajuste">
+          <div className="ajuste-texto">
+            <strong>Carpeta actual</strong>
             <small className="sutil">
               <code>{config.carpetaRaiz}</code>
             </small>
           </div>
-          <button className="btn" onClick={() => void elegirCarpeta()}>
-            <Icono nombre="carpeta" tamano={16} /> Cambiar
-          </button>
+          {config.modoAlmacenamiento === "local" && (
+            <button className="btn" onClick={() => void elegirCarpeta()}>
+              <Icono nombre="carpeta" tamano={16} /> Cambiar
+            </button>
+          )}
         </div>
+
+        {config.modoAlmacenamiento === "onedrive" && (
+          <>
+            {!oneDrive?.instalado && (
+              <div className="aviso aviso-info">
+                <Icono nombre="alerta" />
+                <span>
+                  No encontré OneDrive instalado en esta máquina. Instálalo y
+                  deja que sincronice al menos una vez antes de elegir este
+                  modo.
+                </span>
+                <button
+                  className="btn btn-mini"
+                  onClick={() => void openUrl(URL_DESCARGA_ONEDRIVE)}
+                >
+                  Descargar
+                </button>
+              </div>
+            )}
+            {oneDrive && oneDrive.cuentas.length > 0 && (
+              <div className="ajuste">
+                <div className="ajuste-texto">
+                  <strong>Crear la carpeta ClassRecorder en…</strong>
+                  <small className="sutil">
+                    Una cuenta de OneDrive por botón: personal y las de
+                    organización que tengas conectadas.
+                  </small>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {oneDrive.cuentas.map((c) => (
+                    <button
+                      key={c.carpeta}
+                      className="btn btn-mini"
+                      onClick={() => void crearCarpetaAlmacenEn(c.carpeta)}
+                    >
+                      {c.nombre}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="ajuste">
+              <div className="ajuste-texto">
+                <strong>O elegir una carpeta ya existente</strong>
+              </div>
+              <button
+                className="btn"
+                onClick={() => void elegirCarpetaAlmacenExistente()}
+              >
+                <Icono nombre="carpeta" tamano={16} /> Elegir carpeta
+              </button>
+            </div>
+          </>
+        )}
+
+        {config.modoAlmacenamiento === "googledrive" && (
+          <>
+            {drive && !drive.instalado && (
+              <div className="aviso aviso-info">
+                <Icono nombre="alerta" />
+                <span>
+                  No encontré Google Drive para escritorio en esta máquina.
+                  Instálalo y deja que sincronice al menos una vez antes de
+                  elegir este modo.
+                </span>
+                <button
+                  className="btn btn-mini"
+                  onClick={() => void openUrl(URL_DESCARGA_DRIVE)}
+                >
+                  Descargar
+                </button>
+              </div>
+            )}
+            {drive && drive.candidatas.length > 0 && (
+              <div className="ajuste">
+                <div className="ajuste-texto">
+                  <strong>Crear la carpeta ClassRecorder en…</strong>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {drive.candidatas.map((c) => (
+                    <button
+                      key={c}
+                      className="btn btn-mini"
+                      onClick={() => void crearCarpetaAlmacenEn(c)}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="ajuste">
+              <div className="ajuste-texto">
+                <strong>O elegir una carpeta ya existente</strong>
+                <small className="sutil">
+                  Google Drive nunca deja el audio en modo ahorro de espacio:
+                  siempre queda una copia completa acá y en la nube.
+                </small>
+              </div>
+              <button
+                className="btn"
+                onClick={() => void elegirCarpetaAlmacenExistente()}
+              >
+                <Icono nombre="carpeta" tamano={16} /> Elegir carpeta
+              </button>
+            </div>
+          </>
+        )}
 
         <div className="ajuste">
           <div className="ajuste-texto">
@@ -1097,7 +1400,114 @@ export function ConfiguracionPanel() {
           )}
         </div>
       </div>
+
+      {pendienteMigracion && (
+        <ModalMigracion
+          grabaciones={datos.grabaciones.length}
+          migrando={migrando}
+          error={errorMigracion}
+          onMover={() => void moverTodoAhora()}
+          onDejar={() => void dejarSinMover()}
+          onCancelar={() => setPendienteMigracion(null)}
+          onCerrarError={() => setErrorMigracion(null)}
+        />
+      )}
     </section>
+  );
+}
+
+function ModalMigracion({
+  grabaciones,
+  migrando,
+  error,
+  onMover,
+  onDejar,
+  onCancelar,
+  onCerrarError,
+}: {
+  grabaciones: number;
+  migrando: {
+    archivos: number;
+    totalArchivos: number;
+    bytes: number;
+    totalBytes: number;
+  } | null;
+  error: string | null;
+  onMover(): void;
+  onDejar(): void;
+  onCancelar(): void;
+  onCerrarError(): void;
+}) {
+  const ocupado = migrando !== null;
+  return (
+    <div className="modal-fondo" onClick={ocupado ? undefined : onCancelar}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Cambiar ubicación de las grabaciones"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3>Cambiar ubicación de las grabaciones</h3>
+
+        {error ? (
+          <>
+            <div className="aviso aviso-error">
+              <Icono nombre="alerta" />
+              <span>{error}</span>
+            </div>
+            <div className="modal-acciones">
+              <button className="btn btn-primario" onClick={onCerrarError}>
+                Cerrar
+              </button>
+            </div>
+          </>
+        ) : ocupado ? (
+          <>
+            <p className="sutil">Moviendo {migrando.totalArchivos} archivos…</p>
+            <div className="descarga">
+              <div className="progreso">
+                <div
+                  className="progreso-valor"
+                  style={{
+                    width: `${
+                      migrando.totalBytes > 0
+                        ? Math.round((migrando.bytes / migrando.totalBytes) * 100)
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+              <small className="sutil">
+                {formatearBytes(migrando.bytes)} / {formatearBytes(migrando.totalBytes)} ·{" "}
+                {migrando.archivos}/{migrando.totalArchivos} archivos
+              </small>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="modal-cuerpo">
+              <p>
+                Tienes <strong>{grabaciones}</strong>{" "}
+                {grabaciones === 1 ? "grabación" : "grabaciones"} en la ubicación
+                actual. ¿Qué quieres hacer?
+              </p>
+            </div>
+            <div className="modal-acciones">
+              <button className="btn" onClick={onCancelar}>
+                Cancelar
+              </button>
+              <button className="btn" onClick={onDejar}>
+                Dejarlas donde están
+              </button>
+              <button className="btn btn-primario" onClick={onMover}>
+                Mover todo ahora
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 

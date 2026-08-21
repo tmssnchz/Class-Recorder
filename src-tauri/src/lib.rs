@@ -1,3 +1,4 @@
+mod almacenamiento;
 mod descargas;
 mod importar;
 mod respaldo;
@@ -130,6 +131,11 @@ pub fn run() {
         .manage(transcripcion::Procesos::default())
         .invoke_handler(tauri::generate_handler![
             espacio_disco,
+            almacenamiento::detectar_onedrive,
+            almacenamiento::crear_carpeta_en_raiz,
+            almacenamiento::es_placeholder,
+            almacenamiento::hidratar_archivo,
+            almacenamiento::mover_carpeta_grabaciones,
             descargas::descargar_modelo,
             descargas::descargar_modelo_faster,
             descargas::instalar_whisper,

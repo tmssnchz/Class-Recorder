@@ -30,6 +30,7 @@ import {
   escribirMetaParcial,
   moverDestino,
   prepararDestino,
+  raizDeClase,
   tamanoArchivo,
   type Destino,
   type GrabacionInterrumpida,
@@ -106,7 +107,8 @@ interface Grabador {
   pausar(): void;
   reanudar(): void;
   alternarPausa(): void;
-  detener(): Promise<void>;
+  /** Devuelve la grabación recién guardada (o null si no había nada grabando). */
+  detener(): Promise<Grabacion | null>;
   marcar(): void;
   editarNotaMarca(id: string, nota: string): void;
   quitarMarca(id: string): void;
@@ -176,10 +178,14 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
   const intervaloRef = useRef<number | null>(null);
   const ultimaMetaRef = useRef(0);
   const configRef = useRef(config);
+  const datosRef = useRef(datos);
 
   useEffect(() => {
     configRef.current = config;
   }, [config]);
+  useEffect(() => {
+    datosRef.current = datos;
+  }, [datos]);
 
   useEffect(() => {
     seleccionRef.current = seleccion;
@@ -227,8 +233,9 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
         try {
           // Se encola detrás de las escrituras de audio pendientes: el rename
           // no puede pisar un chunk que todavía se está apendeando.
+          const raiz = raizDeClase(datosRef.current.grabaciones, claseId, cfg.carpetaRaiz);
           const tarea = colaRef.current.then(() =>
-            moverDestino(d, cfg.carpetaRaiz, new Date(meta.fechaISO), claseNombre, unidadNombre),
+            moverDestino(d, raiz, new Date(meta.fechaISO), claseNombre, unidadNombre),
           );
           colaRef.current = tarea.then(() => undefined).catch(() => undefined);
 
@@ -474,12 +481,8 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
         streamRef.current = stream;
 
         // 3. Carpeta y archivo de destino.
-        const d = await prepararDestino(
-          cfg.carpetaRaiz,
-          claseNombre,
-          unidadNombre,
-          new Date(),
-        );
+        const raiz = raizDeClase(datosRef.current.grabaciones, clase?.id ?? null, cfg.carpetaRaiz);
+        const d = await prepararDestino(raiz, claseNombre, unidadNombre, new Date());
         destinoRef.current = d;
         rutaEscrituraRef.current = d.rutaParcial;
         setDestino(d);
@@ -630,8 +633,8 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
     else if (faseRef.current === "pausado") reanudar();
   }, [pausar, reanudar]);
 
-  const detener = useCallback(async () => {
-    if (faseRef.current !== "grabando" && faseRef.current !== "pausado") return;
+  const detener = useCallback(async (): Promise<Grabacion | null> => {
+    if (faseRef.current !== "grabando" && faseRef.current !== "pausado") return null;
     // Si hay una reasignación de clase/unidad en curso, hay que dejarla
     // terminar: si no, podríamos leer destinoRef.current a mitad del rename.
     await reasignacionRef.current;
@@ -639,7 +642,7 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
     const rec = recorderRef.current;
     const d = destinoRef.current;
     const meta = metaRef.current;
-    if (!rec || !d || !meta) return;
+    if (!rec || !d || !meta) return null;
 
     if (faseRef.current === "grabando") {
       acumuladoMsRef.current += performance.now() - inicioTramoRef.current;
@@ -682,6 +685,7 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
         tags: [],
         marcas: marcasRef.current,
         transcripcion: null,
+        notaClase: "",
       };
 
       await agregarGrabacion(grabacion);
@@ -689,12 +693,14 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
 
       // La conversión sigue por su cuenta: la app queda libre enseguida.
       void convertir(grabacion, configRef.current.formatoAudio);
+      return grabacion;
     } catch (e) {
       setError(
         `La grabación se detuvo pero hubo un problema al guardarla: ${
           e instanceof Error ? e.message : String(e)
         }. El audio crudo sigue en ${d.rutaParcial}`,
       );
+      return null;
     } finally {
       limpiarRecursos();
       destinoRef.current = null;
@@ -797,6 +803,7 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
           tags: ["recuperada"],
           marcas: i.meta?.marcas ?? [],
           transcripcion: null,
+          notaClase: "",
         };
 
         await agregarGrabacion(grabacion);

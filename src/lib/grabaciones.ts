@@ -44,6 +44,27 @@ export function consultarEspacio(ruta: string): Promise<EspacioDisco> {
   return invoke<EspacioDisco>("espacio_disco", { ruta });
 }
 
+/**
+ * Raíz donde ya viven las grabaciones de una clase, si tiene alguna. Evita que
+ * una clase quede repartida entre dos carpetas al cambiar la ubicación de
+ * almacenamiento y elegir dejar las grabaciones existentes donde están: solo
+ * las clases nuevas (sin grabaciones todavía) usan la raíz actual de la config.
+ *
+ * ponytail: no mira `datos.materiales`, así que una clase sin grabaciones pero
+ * con material ya guardado no se detecta — agregar esa señal si aparece el caso.
+ */
+export function raizDeClase(
+  grabaciones: Grabacion[],
+  claseId: string | null,
+  carpetaRaizActual: string,
+): string {
+  if (!claseId) return carpetaRaizActual;
+  const existente = grabaciones.find((g) => g.claseId === claseId);
+  if (!existente) return carpetaRaizActual;
+  // carpeta = raiz/clase/unidad → subir dos niveles llega a la raíz.
+  return carpetaDe(carpetaDe(existente.carpeta));
+}
+
 export interface Destino {
   carpeta: string;
   base: string; // nombre de archivo sin extensión
@@ -352,7 +373,7 @@ export async function reconciliarConDisco(
           !idsConocidos.has(contenido.id) &&
           (await exists(contenido.archivoAudio))
         ) {
-          encontradas.push(contenido as Grabacion);
+          encontradas.push({ ...contenido, notaClase: contenido.notaClase ?? "" } as Grabacion);
           idsConocidos.add(contenido.id);
         }
       } catch {

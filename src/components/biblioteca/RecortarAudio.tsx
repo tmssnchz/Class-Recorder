@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 
+import { useDescargaNube } from "../../hooks/useDescargaNube";
 import {
   formatearDuracion,
   formatearHora,
@@ -15,6 +16,7 @@ import {
 import type { Grabacion } from "../../types";
 import { Icono } from "../ui/Icono";
 import { ModalConfirmacion } from "../ui/ModalConfirmacion";
+import { ModalDescargaNube } from "../ui/ModalDescargaNube";
 
 const ETIQUETA_ETAPA: Record<EtapaRecorte, string> = {
   recortando: "Recortando…",
@@ -37,6 +39,13 @@ export function RecortarAudio({ grabacion, onCancelar, onListo }: Props) {
   const [procesando, setProcesando] = useState(false);
   const [etapa, setEtapa] = useState<EtapaRecorte | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const {
+    estado: estadoDescarga,
+    asegurar: asegurarAudio,
+    confirmar: confirmarDescarga,
+    cancelar: cancelarDescarga,
+    cerrar: cerrarDescarga,
+  } = useDescargaNube();
 
   /**
    * Cambiar de modo tiene que arrancar de cero: si no, un límite cargado en
@@ -70,6 +79,7 @@ export function RecortarAudio({ grabacion, onCancelar, onListo }: Props) {
 
   const ejecutar = async (reemplazoConfirmado: boolean) => {
     if (!listo || hastaSeg === null) return;
+    if (!(await asegurarAudio(grabacion.archivoAudio))) return;
     setProcesando(true);
     setError(null);
     try {
@@ -248,6 +258,13 @@ export function RecortarAudio({ grabacion, onCancelar, onListo }: Props) {
           }
           onConfirmar={() => void ejecutar(true)}
           onCancelar={() => setConfirmandoReemplazo(false)}
+        />
+
+        <ModalDescargaNube
+          estado={estadoDescarga}
+          onConfirmar={confirmarDescarga}
+          onCancelar={cancelarDescarga}
+          onCerrar={cerrarDescarga}
         />
       </div>
     </div>

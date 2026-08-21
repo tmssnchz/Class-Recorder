@@ -17,6 +17,8 @@ import {
 } from "react";
 import { listen } from "@tauri-apps/api/event";
 
+import { ModalDescargaNube } from "../components/ui/ModalDescargaNube";
+import { useDescargaNube } from "../hooks/useDescargaNube";
 import { escribirMetaGrabacion } from "../lib/grabaciones";
 import {
   cancelarTranscripcion,
@@ -48,6 +50,13 @@ const ContextoCola = createContext<Cola | null>(null);
 export function ProveedorTranscripciones({ children }: { children: ReactNode }) {
   const { config, actualizarGrabacion } = useStore();
   const [tareas, setTareas] = useState<Record<string, TareaTranscripcion>>({});
+  const {
+    estado: estadoDescarga,
+    asegurar: asegurarAudio,
+    confirmar: confirmarDescarga,
+    cancelar: cancelarDescarga,
+    cerrar: cerrarDescarga,
+  } = useDescargaNube();
 
   const pendientesRef = useRef<Grabacion[]>([]);
   const corriendoRef = useRef(0);
@@ -91,6 +100,14 @@ export function ProveedorTranscripciones({ children }: { children: ReactNode }) 
 
       void (async () => {
         try {
+          if (!(await asegurarAudio(grabacion.archivoAudio))) {
+            setTareas((t) => {
+              const copia = { ...t };
+              delete copia[grabacion.id];
+              return copia;
+            });
+            return;
+          }
           const { transcripcion } = await transcribirGrabacion(
             grabacion,
             configRef.current,
@@ -116,7 +133,7 @@ export function ProveedorTranscripciones({ children }: { children: ReactNode }) 
         }
       })();
     }
-  }, [actualizarGrabacion, actualizarTarea]);
+  }, [actualizarGrabacion, actualizarTarea, asegurarAudio]);
 
   const encolar = useCallback(
     (grabacion: Grabacion) => {
@@ -166,7 +183,17 @@ export function ProveedorTranscripciones({ children }: { children: ReactNode }) 
     [tareas, encolar, cancelar, descartarError],
   );
 
-  return <ContextoCola.Provider value={valor}>{children}</ContextoCola.Provider>;
+  return (
+    <ContextoCola.Provider value={valor}>
+      {children}
+      <ModalDescargaNube
+        estado={estadoDescarga}
+        onConfirmar={confirmarDescarga}
+        onCancelar={cancelarDescarga}
+        onCerrar={cerrarDescarga}
+      />
+    </ContextoCola.Provider>
+  );
 }
 
 export function useTranscripciones(): Cola {
