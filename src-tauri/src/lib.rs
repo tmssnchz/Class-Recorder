@@ -50,11 +50,15 @@ fn espacio_disco(ruta: String) -> Result<EspacioDisco, String> {
     })
 }
 
+/// Sube por los padres hasta encontrar uno que exista. Sin `canonicalize`:
+/// en Windows agrega el prefijo `\\?\`, que después nunca matchea contra el
+/// punto de montaje de sysinfo (que nunca lo trae) y rompe la comparación de
+/// abajo.
 fn ruta_existente_mas_cercana(ruta: &Path) -> Option<PathBuf> {
     let mut actual = Some(ruta);
     while let Some(p) = actual {
         if p.exists() {
-            return p.canonicalize().ok().or_else(|| Some(p.to_path_buf()));
+            return Some(p.to_path_buf());
         }
         actual = p.parent();
     }
