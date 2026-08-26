@@ -29,6 +29,7 @@ import {
   type BaseDatos,
   type Clase,
   type Config,
+  type ConfigApiTranscripcion,
   type BloqueHorario,
   type Grabacion,
   type Material,
@@ -39,9 +40,10 @@ export function nuevoId(): string {
   return crypto.randomUUID();
 }
 
-/** Los atajos se pueden actualizar de a uno sin repetir los otros tres. */
-export type CambiosConfig = Partial<Omit<Config, "atajos">> & {
+/** Los atajos y los ajustes de la API se pueden actualizar de a uno, sin repetir el resto. */
+export type CambiosConfig = Partial<Omit<Config, "atajos" | "apiTranscripcion">> & {
   atajos?: Partial<Atajos>;
+  apiTranscripcion?: Partial<ConfigApiTranscripcion>;
 };
 
 interface Store {
@@ -158,6 +160,10 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
       ...configRef.current,
       ...cambios,
       atajos: { ...configRef.current.atajos, ...(cambios.atajos ?? {}) },
+      apiTranscripcion: {
+        ...configRef.current.apiTranscripcion,
+        ...(cambios.apiTranscripcion ?? {}),
+      },
     };
     configRef.current = siguiente;
     setConfig(siguiente);

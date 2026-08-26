@@ -21,7 +21,7 @@ import {
   prepararInbox,
   type InfoDrive,
 } from "../lib/importar";
-import { useStore } from "../estado/store";
+import { nuevoId, useStore } from "../estado/store";
 
 /** Igual que el del backend: la subcarpeta que la app crea dentro del Drive. */
 const NOMBRE_INBOX = "ClassRecorder_Inbox";
@@ -30,10 +30,12 @@ import { formatearBytes, formatearDuracion } from "../lib/format";
 import {
   MODELOS,
   MODELOS_FASTER,
+  PROVEEDORES_API,
   URL_MOTOR,
   URL_MOTOR_FASTER,
   borrarModelo,
   borrarModeloFaster,
+  buscarProveedorApi,
   carpetaDeModeloFaster,
   carpetaFaster,
   carpetaModelos,
@@ -48,12 +50,15 @@ import {
   type ModeloFasterInfo,
   type ModeloInfo,
 } from "../lib/modelos";
+import { guardarClaveApi, probarConexionApi } from "../lib/transcripcionApi";
 import type {
   Atajos,
   FormatoAudio,
   IdModelo,
   IdModeloFaster,
   ModoAlmacenamiento,
+  PerfilApi,
+  ProveedorApi,
 } from "../types";
 import { Icono } from "./ui/Icono";
 
@@ -1009,6 +1014,8 @@ export function ConfiguracionPanel() {
         </div>
       </div>
 
+      <SeccionApiTranscripcion />
+
       {/* --------------------------------------------------------- modelos */}
       <div className="tarjeta">
         <h3 className="titulo-seccion">
@@ -1507,6 +1514,325 @@ function ModalMigracion({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Transcripción por API externa: 100% opcional, con la clave del propio
+ * usuario. Se pueden guardar varios perfiles (distintos proveedores, o el
+ * mismo con distintas claves) y elegir entre ellos al transcribir — o dejar
+ * que la cola rote sola entre todos ("Multi-API", ver `transcripcionApi.ts`).
+ * La clave nunca se guarda en texto plano: `guardarClaveApi` la manda a
+ * Rust, que la cifra con DPAPI y devuelve solo el cifrado a guardar en
+ * config.json.
+ */
+function SeccionApiTranscripcion() {
+  const { config, actualizarConfig } = useStore();
+  const api = config.apiTranscripcion;
+
+  const [agregando, setAgregando] = useState(false);
+  const [nombreInput, setNombreInput] = useState("");
+  const [proveedorInput, setProveedorInput] = useState<ProveedorApi>("groq");
+  const [urlInput, setUrlInput] = useState("");
+  const [claveInput, setClaveInput] = useState("");
+  const [mostrarClave, setMostrarClave] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [errorForm, setErrorForm] = useState<string | null>(null);
+
+  const [probandoId, setProbandoId] = useState<string | null>(null);
+  const [resultadoPrueba, setResultadoPrueba] = useState<
+    { id: string; texto: "ok" | string } | null
+  >(null);
+
+  const cancelarAlta = () => {
+    setAgregando(false);
+    setNombreInput("");
+    setUrlInput("");
+    setClaveInput("");
+    setProveedorInput("groq");
+    setErrorForm(null);
+  };
+
+  const agregarPerfil = async () => {
+    if (!nombreInput.trim() || !claveInput.trim()) return;
+    setGuardando(true);
+    setErrorForm(null);
+    try {
+      const claveCifrada = await guardarClaveApi(claveInput.trim());
+      const nuevo: PerfilApi = {
+        id: nuevoId(),
+        nombre: nombreInput.trim(),
+        proveedor: proveedorInput,
+        urlPersonalizada: urlInput.trim(),
+        claveCifrada,
+      };
+      await actualizarConfig({ apiTranscripcion: { perfiles: [...api.perfiles, nuevo] } });
+      cancelarAlta();
+    } catch (e) {
+      setErrorForm(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const eliminarPerfil = (id: string) => {
+    const perfiles = api.perfiles.filter((p) => p.id !== id);
+    // Si era el predeterminado, no puede quedar apuntando a un perfil que ya no existe.
+    const predeterminado =
+      api.predeterminado.tipo === "api" && api.predeterminado.perfilId === id
+        ? ({ tipo: "local" } as const)
+        : api.predeterminado;
+    void actualizarConfig({ apiTranscripcion: { perfiles, predeterminado } });
+  };
+
+  const probarPerfil = async (perfil: PerfilApi) => {
+    setProbandoId(perfil.id);
+    setResultadoPrueba(null);
+    try {
+      await probarConexionApi(perfil);
+      setResultadoPrueba({ id: perfil.id, texto: "ok" });
+    } catch (e) {
+      setResultadoPrueba({ id: perfil.id, texto: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setProbandoId(null);
+    }
+  };
+
+  return (
+    <div className="tarjeta">
+      <h3 className="titulo-seccion">Transcripción por API</h3>
+      <p className="sutil" style={{ marginBottom: 14 }}>
+        Transcribe con tu propia clave de Groq, OpenAI o cualquier endpoint
+        compatible, en vez del motor local. Podés guardar varios perfiles (por
+        ejemplo, dos claves de Groq distintas) y elegir entre ellos al
+        transcribir. Nada de esto se activa si no lo configurás acá: por
+        defecto la app sigue transcribiendo local.
+      </p>
+
+      <div className="ajuste">
+        <div className="ajuste-texto">
+          <strong>Habilitar transcripción por API</strong>
+          <small className="sutil">
+            Al transcribir, se te preguntará qué motor usar.
+          </small>
+        </div>
+        <div className="conmutador">
+          <button
+            className={!api.habilitada ? "activo" : ""}
+            onClick={() => void actualizarConfig({ apiTranscripcion: { habilitada: false } })}
+          >
+            Desactivada
+          </button>
+          <button
+            className={api.habilitada ? "activo" : ""}
+            onClick={() => void actualizarConfig({ apiTranscripcion: { habilitada: true } })}
+          >
+            Activada
+          </button>
+        </div>
+      </div>
+
+      {api.habilitada && (
+        <>
+          <div className="ajuste">
+            <div className="ajuste-texto">
+              <strong>Motor predeterminado</strong>
+              <small className="sutil">
+                Se usa sin preguntar, salvo que elijas otro al transcribir.
+              </small>
+            </div>
+            <select
+              value={
+                api.predeterminado.tipo === "api" ? api.predeterminado.perfilId : api.predeterminado.tipo
+              }
+              onChange={(e) =>
+                void actualizarConfig({
+                  apiTranscripcion: {
+                    predeterminado:
+                      e.target.value === "local"
+                        ? { tipo: "local" }
+                        : e.target.value === "multiapi"
+                          ? { tipo: "multiapi" }
+                          : { tipo: "api", perfilId: e.target.value },
+                  },
+                })
+              }
+            >
+              <option value="local">Motor local</option>
+              {api.perfiles
+                .filter((p) => p.claveCifrada)
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre}
+                  </option>
+                ))}
+              {api.perfiles.some((p) => p.claveCifrada) && (
+                <option value="multiapi">Multi-API (todos en orden)</option>
+              )}
+            </select>
+          </div>
+
+          {api.perfiles.length > 0 && (
+            <table className="tabla-modelos">
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Proveedor</th>
+                  <th>Clave</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {api.perfiles.map((p) => (
+                  <tr key={p.id}>
+                    <td>
+                      <strong>{p.nombre}</strong>
+                      {api.predeterminado.tipo === "api" &&
+                        api.predeterminado.perfilId === p.id && (
+                          <span className="chip chip-mini">predeterminado</span>
+                        )}
+                      {resultadoPrueba?.id === p.id &&
+                        (resultadoPrueba.texto === "ok" ? (
+                          <small className="sutil"> · conexión correcta</small>
+                        ) : (
+                          <small className="sutil"> · {resultadoPrueba.texto}</small>
+                        ))}
+                    </td>
+                    <td>{buscarProveedorApi(p.proveedor).nombre}</td>
+                    <td>
+                      {p.claveCifrada ? (
+                        <span className="chip">guardada</span>
+                      ) : (
+                        <span className="sutil">sin clave</span>
+                      )}
+                    </td>
+                    <td className="acciones-celda">
+                      <button
+                        className="btn btn-mini"
+                        disabled={!p.claveCifrada || probandoId === p.id}
+                        onClick={() => void probarPerfil(p)}
+                      >
+                        {probandoId === p.id ? "Probando…" : "Probar"}
+                      </button>
+                      <button
+                        className="btn-icono peligro"
+                        title="Eliminar perfil"
+                        onClick={() => eliminarPerfil(p.id)}
+                      >
+                        <Icono nombre="basura" tamano={15} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {agregando ? (
+            <>
+              <div className="ajuste">
+                <div className="ajuste-texto">
+                  <strong>Nombre</strong>
+                  <small className="sutil">Para distinguirlo de otros perfiles.</small>
+                </div>
+                <input
+                  type="text"
+                  placeholder="ej. Groq personal"
+                  value={nombreInput}
+                  onChange={(e) => setNombreInput(e.target.value)}
+                />
+              </div>
+
+              <div className="ajuste">
+                <div className="ajuste-texto">
+                  <strong>Proveedor</strong>
+                </div>
+                <select
+                  value={proveedorInput}
+                  onChange={(e) => setProveedorInput(e.target.value as ProveedorApi)}
+                >
+                  {PROVEEDORES_API.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {proveedorInput === "personalizado" && (
+                <div className="ajuste">
+                  <div className="ajuste-texto">
+                    <strong>URL del endpoint</strong>
+                    <small className="sutil">
+                      Debe aceptar el formato OpenAI de <code>audio/transcriptions</code>.
+                    </small>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="https://.../v1/audio/transcriptions"
+                    value={urlInput}
+                    onChange={(e) => setUrlInput(e.target.value)}
+                  />
+                </div>
+              )}
+
+              <div className="ajuste">
+                <div className="ajuste-texto">
+                  <strong>Clave de API</strong>
+                  <small className="sutil">
+                    Se guarda cifrada en este equipo. Nunca se muestra de nuevo ni se
+                    comparte con nada que no sea {buscarProveedorApi(proveedorInput).nombre}.
+                  </small>
+                </div>
+                <div className="con-sufijo">
+                  <input
+                    type={mostrarClave ? "text" : "password"}
+                    placeholder="sk-..."
+                    value={claveInput}
+                    onChange={(e) => setClaveInput(e.target.value)}
+                    autoComplete="off"
+                  />
+                  <button
+                    className="btn btn-mini"
+                    type="button"
+                    onClick={() => setMostrarClave((v) => !v)}
+                  >
+                    {mostrarClave ? "Ocultar" : "Mostrar"}
+                  </button>
+                </div>
+              </div>
+              {errorForm && (
+                <div className="aviso aviso-error">
+                  <Icono nombre="alerta" />
+                  <span>{errorForm}</span>
+                </div>
+              )}
+              <div className="acciones-detalle" style={{ marginTop: 0, border: "none" }}>
+                <button className="btn" onClick={cancelarAlta}>
+                  Cancelar
+                </button>
+                <button
+                  className="btn btn-primario"
+                  disabled={!nombreInput.trim() || !claveInput.trim() || guardando}
+                  onClick={() => void agregarPerfil()}
+                >
+                  {guardando ? "Guardando…" : "Guardar perfil"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <button className="btn" style={{ marginTop: 8 }} onClick={() => setAgregando(true)}>
+              + Agregar perfil de API
+            </button>
+          )}
+          {api.perfiles.length === 0 && !agregando && (
+            <p className="sutil" style={{ marginTop: 8 }}>
+              Agregá al menos un perfil para poder elegirlo al transcribir.
+            </p>
+          )}
+        </>
+      )}
     </div>
   );
 }

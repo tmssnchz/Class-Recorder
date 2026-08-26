@@ -1,6 +1,6 @@
 [package]
 name = "class-recorder"
-version = "0.2.0"
+version = "0.3.0"
 description = "Grabador, organizador y transcriptor de clases universitarias"
 authors = ["Tomas"]
 edition = "2021"
@@ -27,10 +27,12 @@ serde = { version = "1", features = ["derive"] }
 tauri-plugin-global-shortcut = "2"
 serde_json = "1"
 sysinfo = "0.33"
-# Descarga del motor y de los modelos de whisper (única parte que usa internet).
+# Descarga del motor y de los modelos de whisper, y llamadas a la API de
+# transcripción externa que el usuario configure (las únicas partes que usan internet).
 reqwest = { version = "0.12", default-features = false, features = [
   "stream",
   "rustls-tls",
+  "multipart",
 ] }
 futures-util = "0.3"
 tokio = { version = "1", features = ["fs", "io-util", "time"] }
@@ -41,10 +43,13 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # vienen de ahí (tauri::webview::PlatformWebview::controller).
 [target.'cfg(target_os = "windows")'.dependencies]
 webview2-com = "0.38"
-# Detecta y fuerza la hidratación de placeholders de OneDrive (Archivos bajo demanda).
+# Detecta y fuerza la hidratación de placeholders de OneDrive (Archivos bajo
+# demanda), y cifra la clave de la API de transcripción con DPAPI (ligada al
+# usuario de Windows) para no guardarla en texto plano en config.json.
 windows = { version = "0.61", features = [
   "Win32_Storage_FileSystem",
   "Win32_Foundation",
+  "Win32_Security_Cryptography",
 ] }
 
 [profile.release]

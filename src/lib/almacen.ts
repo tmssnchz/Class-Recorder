@@ -137,6 +137,10 @@ export async function cargarConfig(): Promise<Config> {
     ...base,
     ...guardada,
     atajos: { ...base.atajos, ...(guardada.atajos ?? {}) },
+    apiTranscripcion: {
+      ...base.apiTranscripcion,
+      ...(guardada.apiTranscripcion ?? {}),
+    },
     // Una config vieja trae la plantilla vacía: se rellena con la de fábrica.
     plantillaPromptHorario:
       guardada.plantillaPromptHorario || PLANTILLA_PROMPT_POR_DEFECTO,

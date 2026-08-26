@@ -239,6 +239,70 @@ export async function concatenarArchivos(
   }
 }
 
+export interface VentanaAudio {
+  desdeSeg: number;
+  duracionSeg: number;
+}
+
+/**
+ * MP3 mono 16 kHz a 24 kbps para mandar a una API de transcripción: de sobra
+ * para voz (Whisper igual resamplea) y a ese bitrate pesa ~180 KB por minuto,
+ * bien por debajo del límite de 25 MB de Groq/OpenAI. El WAV sin comprimir de
+ * una clase de 2 h pesa ~220 MB.
+ *
+ * `ventana` recorta un tramo (para partir audios largos en varias llamadas a
+ * la API, ver `transcribirConApi`): `-ss` antes de `-i` para que el seek sea
+ * rápido en archivos largos.
+ */
+export function extraerAudioParaApi(
+  entrada: string,
+  salida: string,
+  opciones: OpcionesConversion = {},
+  ventana?: VentanaAudio,
+): Promise<void> {
+  const recorte = ventana
+    ? ["-ss", String(ventana.desdeSeg), "-t", String(ventana.duracionSeg)]
+    : [];
+  return ejecutar(
+    [
+      "-y",
+      "-hide_banner",
+      ...recorte,
+      "-i",
+      entrada,
+      "-vn",
+      "-ac",
+      "1",
+      "-ar",
+      "16000",
+      "-c:a",
+      "libmp3lame",
+      "-b:a",
+      "24k",
+      "-progress",
+      "pipe:1",
+      "-nostats",
+      salida,
+    ],
+    opciones,
+  );
+}
+
+/** Un segundo de silencio, para el botón "Probar conexión" de la API. */
+export function generarSilencio(salida: string): Promise<void> {
+  return ejecutar([
+    "-y",
+    "-hide_banner",
+    "-f",
+    "lavfi",
+    "-i",
+    "anullsrc=r=16000:cl=mono",
+    "-t",
+    "1",
+    salida,
+  ]);
+}
+
 /**
  * WAV PCM 16 bits, 16 kHz, mono: el único formato de entrada que acepta
  * whisper.cpp. Se genera en una carpeta temporal justo antes de transcribir.

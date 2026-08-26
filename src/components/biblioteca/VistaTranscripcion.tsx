@@ -165,7 +165,10 @@ export function VistaTranscripcion({
         <h3 className="titulo-seccion">Transcripción</h3>
         <small className="sutil">
           {transcripcion.palabras} palabras ·{" "}
-          {etiquetaDeModelo(transcripcion.modelo)} · tardó{" "}
+          {transcripcion.motor === "api"
+            ? `${transcripcion.modelo} · API`
+            : etiquetaDeModelo(transcripcion.modelo)}{" "}
+          · tardó{" "}
           {formatearDuracion(transcripcion.duracionProcesoSeg)}
         </small>
       </div>
