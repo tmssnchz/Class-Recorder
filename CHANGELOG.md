@@ -4,6 +4,15 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Este proyecto todavía no sigue versionado semántico estricto (está en `0.x`,
 así que cualquier versión puede traer cambios incompatibles).
 
+## [0.3.1] - 2026-08-26
+
+### Arreglado
+
+- **Transcripción por API**: el audio se mandaba sin extensión en el nombre
+  de archivo del multipart, y Groq/OpenAI deducen el formato por ahí (no
+  solo por el `Content-Type`). Rechazaban todo con 400 Bad Request. Ahora
+  manda `audio.mp3`/`audio.wav` según corresponda.
+
 ## [0.3.0] - 2026-08-26
 
 ### Agregado
