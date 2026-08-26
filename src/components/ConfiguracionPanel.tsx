@@ -1604,9 +1604,9 @@ function SeccionApiTranscripcion() {
       <h3 className="titulo-seccion">Transcripción por API</h3>
       <p className="sutil" style={{ marginBottom: 14 }}>
         Transcribe con tu propia clave de Groq, OpenAI o cualquier endpoint
-        compatible, en vez del motor local. Podés guardar varios perfiles (por
-        ejemplo, dos claves de Groq distintas) y elegir entre ellos al
-        transcribir. Nada de esto se activa si no lo configurás acá: por
+        compatible, en vez del motor local. Se pueden guardar varios perfiles
+        (por ejemplo, dos claves de Groq distintas) y elegir entre ellos al
+        transcribir. Nada de esto se activa si no se configura acá: por
         defecto la app sigue transcribiendo local.
       </p>
 
@@ -1828,7 +1828,7 @@ function SeccionApiTranscripcion() {
           )}
           {api.perfiles.length === 0 && !agregando && (
             <p className="sutil" style={{ marginTop: 8 }}>
-              Agregá al menos un perfil para poder elegirlo al transcribir.
+              Añade al menos un perfil para poder elegirlo al transcribir.
             </p>
           )}
         </>
