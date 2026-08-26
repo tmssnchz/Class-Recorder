@@ -12,7 +12,12 @@ import { exists, mkdir, remove } from "@tauri-apps/plugin-fs";
 
 import { carpetaDeDatos } from "./almacen";
 import { unir } from "./paths";
-import type { IdModelo, IdModeloFaster, MotorTranscripcion } from "../types";
+import type {
+  IdModelo,
+  IdModeloFaster,
+  MotorTranscripcion,
+  ProveedorApi,
+} from "../types";
 
 const BASE_HF = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
 
@@ -212,15 +217,68 @@ export function buscarModeloFaster(id: IdModeloFaster): ModeloFasterInfo {
   return MODELOS_FASTER.find((m) => m.id === id) ?? MODELOS_FASTER[2];
 }
 
+// --------------------------------------------------------- API externa
+
+export interface ProveedorApiInfo {
+  id: ProveedorApi;
+  nombre: string;
+  /** null en "personalizado": ahí la URL la escribe el usuario. */
+  url: string | null;
+  /** Modelo que pide el endpoint compatible OpenAI `audio/transcriptions`. */
+  modelo: string;
+}
+
+export const PROVEEDORES_API: ProveedorApiInfo[] = [
+  {
+    id: "groq",
+    nombre: "Groq",
+    url: "https://api.groq.com/openai/v1/audio/transcriptions",
+    modelo: "whisper-large-v3-turbo",
+  },
+  {
+    id: "openai",
+    nombre: "OpenAI",
+    url: "https://api.openai.com/v1/audio/transcriptions",
+    modelo: "whisper-1",
+  },
+  {
+    id: "personalizado",
+    nombre: "Personalizado",
+    url: null,
+    modelo: "whisper-1",
+  },
+];
+
+export function buscarProveedorApi(id: ProveedorApi): ProveedorApiInfo {
+  return PROVEEDORES_API.find((p) => p.id === id) ?? PROVEEDORES_API[0];
+}
+
+/** URL efectiva del endpoint de un perfil de API guardado. */
+export function urlProveedorApi(perfil: {
+  proveedor: ProveedorApi;
+  urlPersonalizada: string;
+}): string {
+  const p = buscarProveedorApi(perfil.proveedor);
+  return p.url ?? perfil.urlPersonalizada.trim();
+}
+
+/**
+ * Límite de tamaño de archivo del endpoint `audio/transcriptions` compatible
+ * OpenAI, vigente tanto en Groq como en OpenAI al momento de escribir esto.
+ */
+export const LIMITE_BYTES_API = 25 * 1024 * 1024;
+
 /**
  * Etiqueta legible de un modelo cualquiera. Una transcripción guarda el id del
- * modelo con el que se generó, que puede ser de cualquiera de los dos motores.
+ * modelo con el que se generó (whisper.cpp o faster-whisper) o, si se
+ * transcribió con una API externa, el nombre del perfil usado tal cual.
  */
-export function etiquetaDeModelo(id: IdModelo | IdModeloFaster): string {
+export function etiquetaDeModelo(id: IdModelo | IdModeloFaster | string): string {
   const faster = MODELOS_FASTER.find((m) => m.id === id);
   if (faster) return `${faster.etiqueta} · faster-whisper`;
   const ggml = MODELOS.find((m) => m.id === id);
-  return ggml ? `${ggml.etiqueta} · whisper.cpp` : id;
+  if (ggml) return `${ggml.etiqueta} · whisper.cpp`;
+  return id;
 }
 
 /** Cuánto tardaría `duracionSeg` con el motor y modelo configurados ahora. */

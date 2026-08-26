@@ -3,6 +3,7 @@ mod descargas;
 mod importar;
 mod respaldo;
 mod transcripcion;
+mod transcripcion_api;
 
 use std::path::{Path, PathBuf};
 
@@ -154,6 +155,8 @@ pub fn run() {
             transcripcion::transcribir_faster,
             transcripcion::cancelar_transcripcion,
             transcripcion::hilos_recomendados,
+            transcripcion_api::cifrar_clave_api,
+            transcripcion_api::transcribir_api,
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar ClassRecorder");

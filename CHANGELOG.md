@@ -4,6 +4,32 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Este proyecto todavía no sigue versionado semántico estricto (está en `0.x`,
 así que cualquier versión puede traer cambios incompatibles).
 
+## [0.3.0] - 2026-08-26
+
+### Agregado
+
+- **Transcripción por API externa**: además del motor local, se puede
+  transcribir con Groq, OpenAI o cualquier endpoint compatible con el
+  formato `audio/transcriptions`, usando la propia clave del usuario. 100%
+  opcional y desactivado por defecto: si no se configura nada, la app sigue
+  transcribiendo local exactamente igual que antes.
+- **Varios perfiles de API guardados**: se puede registrar más de una clave
+  (por ejemplo, dos cuentas de Groq) y elegir entre ellas al transcribir.
+  Cada clave se guarda cifrada con DPAPI, ligada al usuario de Windows del
+  equipo: nunca en texto plano, nunca logueada.
+- **Motor predeterminado y elección por transcripción**: al transcribir (una
+  grabación o "Transcribir todas" desde Pendientes) se pregunta si usar el
+  motor predeterminado o elegir otro para esa vez, con la opción de dejarlo
+  como nuevo predeterminado.
+- **Modo Multi-API**: prueba los perfiles guardados en orden y rota al
+  siguiente automáticamente si uno llega al límite de uso (HTTP 429), en vez
+  de frenar la cola. Pensado para dejar muchas clases transcribiéndose de
+  noche repartidas entre varias claves.
+- **Audio largo por API**: se parte en tramos de 90 minutos y se manda por
+  partes (con los tiempos reajustados al pegar los segmentos), así no choca
+  con el límite de tamaño por archivo del proveedor (25 MB en Groq/OpenAI).
+  Si el audio no entra igual, cae automáticamente al motor local.
+
 ## [0.2.0] - 2026-08-21
 
 ### Agregado

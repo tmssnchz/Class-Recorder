@@ -2,7 +2,10 @@
 // Todo se persiste en JSON local: no hay backend ni base de datos externa.
 
 export type FormatoAudio = "mp3" | "wav";
-export type MotorTranscripcion = "whisper.cpp" | "faster-whisper";
+export type MotorTranscripcion = "whisper.cpp" | "faster-whisper" | "api";
+
+/** Proveedores de transcripción por API compatibles con el formato OpenAI. */
+export type ProveedorApi = "groq" | "openai" | "personalizado";
 
 /**
  * Modelos GGML disponibles. Los que terminan en q5_0/q5_1 están cuantizados:
@@ -65,8 +68,11 @@ export interface Transcripcion {
   /** .segmentos.json: los tiempos van aparte para no inflar datos.json. */
   archivoSegmentos: string;
   motor: MotorTranscripcion;
-  /** Id del modelo con el que se generó: GGML o CTranslate2 según el motor. */
-  modelo: IdModelo | IdModeloFaster;
+  /**
+   * Id del modelo con el que se generó: GGML o CTranslate2 según el motor
+   * local, o el nombre del `PerfilApi` usado cuando `motor === "api"`.
+   */
+  modelo: IdModelo | IdModeloFaster | string;
   fechaISO: string;
   palabras: number;
   /** Cuánto tardó en transcribirse, para poder estimar las próximas. */
@@ -229,6 +235,39 @@ export interface Config {
    * null = todavía no se preguntó.
    */
   usarHoraDeSubida: boolean | null;
+  /** Transcripción vía API externa (Groq/OpenAI/personalizado), con la propia key del usuario. */
+  apiTranscripcion: ConfigApiTranscripcion;
+}
+
+/** Una clave de API guardada, con un nombre propio para distinguirla de otras. */
+export interface PerfilApi {
+  id: string;
+  /** Nombre que le puso el usuario, ej. "Groq personal". */
+  nombre: string;
+  proveedor: ProveedorApi;
+  /** Solo se usa cuando proveedor === "personalizado". */
+  urlPersonalizada: string;
+  /**
+   * Clave cifrada con DPAPI (ligada al usuario de Windows), en hexadecimal.
+   * Nunca se guarda ni se transmite en texto plano. null = no configurada.
+   */
+  claveCifrada: string | null;
+}
+
+/**
+ * Motor que se usa sin preguntar, salvo que se elija otro al transcribir.
+ * "multiapi" prueba los perfiles en orden y rota al siguiente si uno se
+ * queda sin cupo (pensado para dejar la cola corriendo de noche).
+ */
+export type MotorPredeterminado =
+  | { tipo: "local" }
+  | { tipo: "api"; perfilId: string }
+  | { tipo: "multiapi" };
+
+export interface ConfigApiTranscripcion {
+  habilitada: boolean;
+  perfiles: PerfilApi[];
+  predeterminado: MotorPredeterminado;
 }
 
 export const VERSION_BD = 1;
@@ -268,6 +307,11 @@ export const CONFIG_POR_DEFECTO: Config = {
   plantillaPromptHorario: "",
   origenGrabaciones: null,
   usarHoraDeSubida: null,
+  apiTranscripcion: {
+    habilitada: false,
+    perfiles: [],
+    predeterminado: { tipo: "local" },
+  },
 };
 
 /** Paleta para asignar color a las clases nuevas. */
