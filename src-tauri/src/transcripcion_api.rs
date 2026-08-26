@@ -132,8 +132,12 @@ pub async fn transcribir_api(
         .await
         .map_err(|e| format!("No se pudo leer el audio a mandar: {e}"))?;
 
+    // El proveedor deduce el formato por la extensión del nombre de archivo
+    // del part, no solo por el Content-Type: sin esto rechaza el audio con
+    // 400 aunque el MIME esté bien.
+    let nombre_archivo = if audio.ends_with(".wav") { "audio.wav" } else { "audio.mp3" };
     let parte_audio = reqwest::multipart::Part::bytes(bytes)
-        .file_name("audio")
+        .file_name(nombre_archivo)
         .mime_str(mime_de(&audio))
         .map_err(|e| format!("Error interno armando el pedido: {e}"))?;
 
