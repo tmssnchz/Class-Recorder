@@ -629,7 +629,7 @@ export function ConfiguracionPanel() {
 
         {config.modoAlmacenamiento === "onedrive" && (
           <>
-            {!oneDrive?.instalado && (
+            {oneDrive && !oneDrive.instalado && (
               <div className="aviso aviso-info">
                 <Icono nombre="alerta" />
                 <span>

@@ -4,6 +4,40 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Este proyecto todavía no sigue versionado semántico estricto (está en `0.x`,
 así que cualquier versión puede traer cambios incompatibles).
 
+## [0.3.2] - 2026-08-26
+
+### Arreglado
+
+- **Los atajos de teclado nunca se registraban**: el permiso
+  `global-shortcut:default` del plugin no habilita ningún comando (lo dice su
+  propia definición), así que cada `register()` era rechazado por el ACL y
+  F8–F11 no funcionaban nunca. Encima la app lo reportaba como "ya está en uso
+  por otro programa", que era un mensaje equivocado: no había ningún otro
+  programa. Se agregaron `allow-register` y `allow-unregister`.
+- **Una sola instancia a la vez**: dos ventanas abiertas se pisaban
+  `config.json` y `datos.json` entre sí, porque cada una guarda su copia en
+  memoria y la última en escribir gana. Ahora la segunda trae al frente la que
+  ya estaba abierta.
+- **Aviso falso de OneDrive**: "No encontré OneDrive instalado en esta
+  máquina" aparecía al entrar a Configuración mientras la detección seguía en
+  curso, y desaparecía solo al llegar la respuesta.
+- **Fallo de guardado silencioso**: si escribir `config.json` fallaba, la
+  interfaz seguía mostrando el cambio como guardado. Ahora el error se ve.
+- **Transcripciones fallidas invisibles**: en Pendientes, una tarea en error se
+  seguía viendo como "transcribiendo" para siempre, sin forma de reintentarla y
+  fuera del lote de "Transcribir todas". Ahora muestra "falló" con el motivo y
+  un botón para reintentar.
+
+### Cambiado
+
+- **El motor predeterminado se respeta sin preguntar**: si hay un perfil de API
+  (o Multi-API) como predeterminado, "Transcribir" y "Transcribir todas" lo
+  usan directamente. El modal de elección queda solo para cuando el
+  predeterminado es el motor local y además hay perfiles de API configurados.
+- **La confirmación de "Transcribir todas" ya no promete el motor local**:
+  ahora dice con qué motor se va a transcribir de verdad, y el aviso de horas
+  de CPU sale solo cuando el trabajo va a correr en local.
+
 ## [0.3.1] - 2026-08-26
 
 ### Arreglado

@@ -4,6 +4,7 @@ import { useStore } from "../../estado/store";
 import { useTranscripciones } from "../../estado/transcripciones";
 import { formatearDuracion, formatearFecha } from "../../lib/format";
 import { estimarConConfig } from "../../lib/modelos";
+import { motorSinPreguntar } from "../../lib/transcripcionApi";
 import type { Grabacion } from "../../types";
 import { Icono } from "../ui/Icono";
 import { ModalConfirmacion } from "../ui/ModalConfirmacion";
@@ -38,11 +39,29 @@ export function Pendientes({ grabaciones, seleccionada, onSeleccionar }: Props) 
     [grabaciones],
   );
 
-  /** Las que no están ya en la cola: son las que agregaría el botón. */
+  /**
+   * Las que no están ya en la cola: son las que agregaría el botón. Las que
+   * fallaron vuelven a contar, si no quedarían fuera del lote para siempre.
+   */
   const encolables = useMemo(
-    () => pendientes.filter((g) => !tareas[g.id]),
+    () =>
+      pendientes.filter(
+        (g) => !tareas[g.id] || tareas[g.id].estado === "error",
+      ),
     [pendientes, tareas],
   );
+
+  /**
+   * El motor que va a correr de verdad. `null` significa que al confirmar se
+   * abre el modal de elección, así que no se promete ninguno.
+   */
+  const motorFijo = useMemo(() => motorSinPreguntar(config), [config]);
+  const enLocal = motorFijo?.tipo === "local";
+  const nombreApi =
+    motorFijo?.tipo === "api"
+      ? config.apiTranscripcion.perfiles.find((p) => p.id === motorFijo.perfilId)
+          ?.nombre
+      : null;
 
   const totales = useMemo(() => {
     const segundosAudio = encolables.reduce((n, g) => n + g.duracionSeg, 0);
@@ -116,24 +135,32 @@ export function Pendientes({ grabaciones, seleccionada, onSeleccionar }: Props) 
                 </strong>
                 <small className="sutil">
                   {formatearFecha(g.fechaISO)} ·{" "}
-                  {formatearDuracion(g.duracionSeg)} · tardaría ~
-                  {formatearDuracion(estimacion.segundos)}
+                  {formatearDuracion(g.duracionSeg)}
+                  {/* La estimación es la del motor local: con API no aplica. */}
+                  {enLocal && ` · tardaría ~${formatearDuracion(estimacion.segundos)}`}
                 </small>
               </div>
-              {tarea ? (
+              {tarea && tarea.estado !== "error" ? (
                 <span className="chip">
                   {tarea.estado === "esperando" ? "en cola" : "transcribiendo"}
                 </span>
               ) : (
-                <button
-                  className="btn btn-mini"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    encolar(g);
-                  }}
-                >
-                  Transcribir
-                </button>
+                <div className="acciones-item">
+                  {tarea && (
+                    <span className="chip chip-error" title={tarea.error}>
+                      falló
+                    </span>
+                  )}
+                  <button
+                    className="btn btn-mini"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      encolar(g);
+                    }}
+                  >
+                    {tarea ? "Reintentar" : "Transcribir"}
+                  </button>
+                </div>
               )}
             </li>
           );
@@ -151,19 +178,35 @@ export function Pendientes({ grabaciones, seleccionada, onSeleccionar }: Props) 
               {encolables.length === 1 ? "grabación" : "grabaciones"} (
               {formatearDuracion(totales.segundosAudio)} de audio).
             </p>
-            <p>
-              Con {config.motorTranscripcion} eso son unas{" "}
-              <strong>{formatearDuracion(totales.estimado)}</strong> de proceso.
-            </p>
-            {totales.estimado > 3600 && (
-              <p className="aviso aviso-info">
-                <Icono nombre="alerta" tamano={16} />
-                <span>
-                  Es más de una hora con la CPU al máximo. Conviene dejarlo
-                  corriendo de noche: mientras tanto la máquina va a ir lenta y
-                  la batería dura bastante menos.
-                </span>
+            {enLocal && (
+              <>
+                <p>
+                  Con {config.motorTranscripcion} eso son unas{" "}
+                  <strong>{formatearDuracion(totales.estimado)}</strong> de
+                  proceso.
+                </p>
+                {totales.estimado > 3600 && (
+                  <p className="aviso aviso-info">
+                    <Icono nombre="alerta" tamano={16} />
+                    <span>
+                      Es más de una hora con la CPU al máximo. Conviene dejarlo
+                      corriendo de noche: mientras tanto la máquina va a ir lenta
+                      y la batería dura bastante menos.
+                    </span>
+                  </p>
+                )}
+              </>
+            )}
+            {motorFijo && !enLocal && (
+              <p>
+                Se transcriben con{" "}
+                <strong>{motorFijo.tipo === "multiapi" ? "Multi-API" : nombreApi}</strong>{" "}
+                por API, sin ocupar la CPU de este equipo. Se puede cambiar en
+                Configuración → Transcripción por API.
               </p>
+            )}
+            {!motorFijo && (
+              <p>Al confirmar eliges con qué motor: local o uno de tus perfiles de API.</p>
             )}
           </>
         }
