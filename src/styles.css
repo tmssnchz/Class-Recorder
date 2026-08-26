@@ -1510,6 +1510,13 @@ kbd {
   margin-top: 8px;
 }
 
+.acciones-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
 /* ------------------------------------------------------------- materiales */
 
 .cabecera-materiales {

@@ -33,6 +33,7 @@ import {
 import {
   ErrorLimiteApi,
   ErrorTamanoApi,
+  motorSinPreguntar,
   perfilPorId,
   perfilesUsables,
   transcribirConApi,
@@ -254,9 +255,11 @@ export function ProveedorTranscripciones({ children }: { children: ReactNode }) 
 
   const encolar = useCallback(
     (grabacion: Grabacion) => {
-      const cfg = configRef.current;
-      if (perfilesUsables(cfg).length === 0) {
-        agregarACola(grabacion, { tipo: "local" });
+      // Con un predeterminado resuelto no se pregunta nada: si está puesta la
+      // API, se encola con la API desde el principio.
+      const motor = motorSinPreguntar(configRef.current);
+      if (motor) {
+        agregarACola(grabacion, motor);
         return;
       }
       // Un click de "transcribir todas" llama a encolar() en bucle, síncrono:

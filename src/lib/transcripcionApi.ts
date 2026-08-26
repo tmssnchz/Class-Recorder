@@ -14,7 +14,13 @@ import { armarTexto, contarPalabras, type ResultadoTranscripcion } from "./trans
 import { extraerAudioParaApi, generarSilencio, type VentanaAudio } from "./audio";
 import { buscarProveedorApi, LIMITE_BYTES_API, urlProveedorApi } from "./modelos";
 import { unir } from "./paths";
-import type { Config, Grabacion, PerfilApi, Segmento } from "../types";
+import type {
+  Config,
+  Grabacion,
+  MotorPredeterminado,
+  PerfilApi,
+  Segmento,
+} from "../types";
 import type { Etapa } from "./transcripcion";
 
 /** Igual forma que la salida de faster-whisper: `start`/`end` en segundos. */
@@ -65,6 +71,21 @@ async function carpetaTemporal(): Promise<string> {
 export function perfilesUsables(config: Config): PerfilApi[] {
   if (!config.apiTranscripcion.habilitada) return [];
   return config.apiTranscripcion.perfiles.filter((p) => p.claveCifrada);
+}
+
+/**
+ * Motor que se usa sin preguntar, o `null` si hay que preguntar. Es lo que
+ * promete Configuración: el predeterminado se aplica solo, y el modal de
+ * elección queda para cuando el predeterminado es el motor local y además
+ * hay perfiles de API configurados.
+ */
+export function motorSinPreguntar(config: Config): MotorPredeterminado | null {
+  const usables = perfilesUsables(config);
+  if (usables.length === 0) return { tipo: "local" };
+  const pre = config.apiTranscripcion.predeterminado;
+  if (pre.tipo === "multiapi") return pre;
+  if (pre.tipo === "api" && usables.some((p) => p.id === pre.perfilId)) return pre;
+  return null;
 }
 
 /** true si hay al menos un perfil de API listo para usarse. */

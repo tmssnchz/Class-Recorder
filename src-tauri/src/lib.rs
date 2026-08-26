@@ -117,6 +117,16 @@ fn permitir_microfono(ventana: &tauri::WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Una sola instancia a la vez: dos ventanas abiertas se pisan config.json
+        // y datos.json entre sí, porque cada una guarda su copia en memoria y la
+        // última en escribir gana. Si ya hay uno corriendo, se lo trae al frente.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            use tauri::Manager;
+            if let Some(ventana) = app.get_webview_window("main") {
+                let _ = ventana.unminimize();
+                let _ = ventana.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())

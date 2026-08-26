@@ -167,7 +167,19 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
     };
     configRef.current = siguiente;
     setConfig(siguiente);
-    await enCola(() => guardarConfig(siguiente));
+    try {
+      await enCola(() => guardarConfig(siguiente));
+    } catch (e) {
+      // Sin esto la UI queda mostrando el cambio como guardado aunque el disco
+      // no se haya tocado: casi todos los llamadores hacen `void`.
+      console.error(e);
+      setError(
+        `No se pudo guardar la configuración en disco: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      );
+      throw e;
+    }
   }, []);
 
   // ------------------------------------------------------------- clases
