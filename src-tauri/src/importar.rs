@@ -15,6 +15,12 @@ const EXTENSIONES_AUDIO: [&str; 10] = [
     "m4a", "mp3", "wav", "aac", "ogg", "opus", "3gp", "amr", "flac", "webm",
 ];
 
+/// Extensiones de foto que suelen salir de un teléfono. Las fotos de apuntes
+/// llegan por la misma carpeta que los audios: separarlas por extensión evita
+/// tener que pedirle al usuario dos carpetas sincronizadas distintas, y evita
+/// que una foto aparezca en la cola de audios o al revés.
+const EXTENSIONES_FOTO: [&str; 5] = ["jpg", "jpeg", "png", "heic", "webp"];
+
 /// Nombre fijo de la carpeta que la app crea dentro del Drive del usuario.
 pub const NOMBRE_INBOX: &str = "ClassRecorder_Inbox";
 /// Subcarpeta donde se archiva lo ya importado, para no reprocesarlo.
@@ -29,10 +35,10 @@ pub struct InfoDrive {
     pub candidatas: Vec<String>,
 }
 
-fn es_audio(ruta: &Path) -> bool {
+fn tiene_extension(ruta: &Path, lista: &[&str]) -> bool {
     ruta.extension()
         .and_then(|e| e.to_str())
-        .map(|e| EXTENSIONES_AUDIO.contains(&e.to_lowercase().as_str()))
+        .map(|e| lista.contains(&e.to_lowercase().as_str()))
         .unwrap_or(false)
 }
 
@@ -105,6 +111,16 @@ fn milisegundos_de(ruta: &Path) -> u64 {
 /// inestable el que haya cambiado. La pausa es una sola para todo el lote.
 #[tauri::command]
 pub async fn escanear_inbox(carpeta: String) -> Result<Vec<ArchivoInbox>, String> {
+    escanear(carpeta, &EXTENSIONES_AUDIO).await
+}
+
+/// Igual que `escanear_inbox` pero para las fotos de apuntes.
+#[tauri::command]
+pub async fn escanear_inbox_fotos(carpeta: String) -> Result<Vec<ArchivoInbox>, String> {
+    escanear(carpeta, &EXTENSIONES_FOTO).await
+}
+
+async fn escanear(carpeta: String, extensiones: &[&str]) -> Result<Vec<ArchivoInbox>, String> {
     let dir = PathBuf::from(&carpeta);
     if !dir.exists() {
         return Err(format!("La carpeta {carpeta} no existe."));
@@ -116,7 +132,7 @@ pub async fn escanear_inbox(carpeta: String) -> Result<Vec<ArchivoInbox>, String
 
     for entrada in entradas.flatten() {
         let ruta = entrada.path();
-        if ruta.is_dir() || !es_audio(&ruta) {
+        if ruta.is_dir() || !tiene_extension(&ruta, extensiones) {
             continue;
         }
         let bytes = entrada.metadata().map(|m| m.len()).unwrap_or(0);

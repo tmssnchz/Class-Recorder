@@ -23,19 +23,22 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 pub struct Procesos(Arc<Mutex<HashMap<String, u32>>>);
 
 impl Procesos {
-    fn registrar(&self, tarea: &str, pid: u32) {
+    // pub(crate) porque el reconocimiento de apuntes (`htr.rs`) usa el mismo
+    // registro de PIDs: así `cancelar_transcripcion` cancela cualquiera de los
+    // dos sin duplicar el estado ni el comando de cancelación.
+    pub(crate) fn registrar(&self, tarea: &str, pid: u32) {
         if let Ok(mut m) = self.0.lock() {
             m.insert(tarea.to_string(), pid);
         }
     }
 
-    fn olvidar(&self, tarea: &str) {
+    pub(crate) fn olvidar(&self, tarea: &str) {
         if let Ok(mut m) = self.0.lock() {
             m.remove(tarea);
         }
     }
 
-    fn pid_de(&self, tarea: &str) -> Option<u32> {
+    pub(crate) fn pid_de(&self, tarea: &str) -> Option<u32> {
         self.0.lock().ok().and_then(|m| m.get(tarea).copied())
     }
 }

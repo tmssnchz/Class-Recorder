@@ -25,11 +25,13 @@ import {
   BASE_DATOS_VACIA,
   COLORES_CLASE,
   CONFIG_POR_DEFECTO,
+  type Apunte,
   type Atajos,
   type BaseDatos,
   type Clase,
   type Config,
   type ConfigApiTranscripcion,
+  type ConfigApuntes,
   type BloqueHorario,
   type Grabacion,
   type Material,
@@ -41,9 +43,12 @@ export function nuevoId(): string {
 }
 
 /** Los atajos y los ajustes de la API se pueden actualizar de a uno, sin repetir el resto. */
-export type CambiosConfig = Partial<Omit<Config, "atajos" | "apiTranscripcion">> & {
+export type CambiosConfig = Partial<
+  Omit<Config, "atajos" | "apiTranscripcion" | "apuntes">
+> & {
   atajos?: Partial<Atajos>;
   apiTranscripcion?: Partial<ConfigApiTranscripcion>;
+  apuntes?: Partial<ConfigApuntes>;
 };
 
 interface Store {
@@ -74,6 +79,11 @@ interface Store {
   agregarMaterial(material: Material): Promise<void>;
   quitarMaterial(id: string): Promise<void>;
   reemplazarMateriales(materiales: Material[]): Promise<void>;
+
+  // Apuntes escaneados
+  agregarApunte(apunte: Apunte): Promise<void>;
+  actualizarApunte(id: string, cambios: Partial<Apunte>): Promise<void>;
+  quitarApunte(id: string): Promise<void>;
 
   // Horario semanal
   guardarHorario(bloques: BloqueHorario[]): Promise<void>;
@@ -160,6 +170,14 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
       ...configRef.current,
       ...cambios,
       atajos: { ...configRef.current.atajos, ...(cambios.atajos ?? {}) },
+      apuntes: {
+        ...configRef.current.apuntes,
+        ...(cambios.apuntes ?? {}),
+        plantilla: {
+          ...configRef.current.apuntes.plantilla,
+          ...(cambios.apuntes?.plantilla ?? {}),
+        },
+      },
       apiTranscripcion: {
         ...configRef.current.apiTranscripcion,
         ...(cambios.apiTranscripcion ?? {}),
@@ -415,6 +433,43 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
     [mutarDatos],
   );
 
+  // ------------------------------------------------------------ apuntes
+
+  const agregarApunte = useCallback(
+    async (apunte: Apunte) => {
+      await mutarDatos((d) => ({ ...d, apuntes: [...d.apuntes, apunte] }));
+    },
+    [mutarDatos],
+  );
+
+  const actualizarApunte = useCallback(
+    async (id: string, cambios: Partial<Apunte>) => {
+      await mutarDatos((d) => ({
+        ...d,
+        apuntes: d.apuntes.map((a) => (a.id === id ? { ...a, ...cambios } : a)),
+      }));
+    },
+    [mutarDatos],
+  );
+
+  const quitarApunte = useCallback(
+    async (id: string) => {
+      await mutarDatos((d) => ({
+        ...d,
+        // El que lo reemplazaba pasa a apuntar a la versión anterior: borrar
+        // una versión intermedia no debe cortar la cadena de re-escaneos.
+        apuntes: d.apuntes
+          .filter((a) => a.id !== id)
+          .map((a) =>
+            a.reemplazaA === id
+              ? { ...a, reemplazaA: d.apuntes.find((v) => v.id === id)?.reemplazaA ?? null }
+              : a,
+          ),
+      }));
+    },
+    [mutarDatos],
+  );
+
   const guardarHorario = useCallback(
     async (bloques: BloqueHorario[]) => {
       await mutarDatos((d) => ({ ...d, horario: bloques }));
@@ -458,6 +513,16 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
             : null,
         })),
         materiales: d.materiales.map((m) => ({ ...m, archivo: remapear(m.archivo) })),
+        apuntes: d.apuntes.map((a) => ({
+          ...a,
+          carpeta: remapear(a.carpeta),
+          archivoTexto: remapear(a.archivoTexto),
+          paginas: a.paginas.map((pg) => ({
+            ...pg,
+            archivo: remapear(pg.archivo),
+            original: pg.original ? remapear(pg.original) : null,
+          })),
+        })),
       }));
     },
     [mutarDatos],
@@ -482,6 +547,9 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
       agregarMaterial,
       quitarMaterial,
       reemplazarMateriales,
+      agregarApunte,
+      actualizarApunte,
+      quitarApunte,
       guardarHorario,
       actualizarConfig,
       remapearRaiz,
@@ -505,6 +573,9 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
       agregarMaterial,
       quitarMaterial,
       reemplazarMateriales,
+      agregarApunte,
+      actualizarApunte,
+      quitarApunte,
       guardarHorario,
       actualizarConfig,
       remapearRaiz,

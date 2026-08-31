@@ -16,7 +16,9 @@ type Nombre =
   | "abrir"
   | "celular"
   | "horario"
-  | "nube";
+  | "nube"
+  | "apunte"
+  | "imprimir";
 
 const TRAZOS: Record<Nombre, string> = {
   micro:
@@ -39,6 +41,11 @@ const TRAZOS: Record<Nombre, string> = {
   horario:
     "M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2ZM3 9h18M8 3v4M16 3v4M8 14h3",
   nube: "M7 18a4 4 0 0 1-.6-7.95 5.5 5.5 0 0 1 10.6-1.55A4 4 0 0 1 16.5 18Z",
+  // Hoja escaneada: el marco de la foto con las esquinas marcadas.
+  apunte:
+    "M4 4h4M4 4v4M20 4h-4M20 4v4M4 20h4M4 20v-4M20 20h-4M20 20v-4M8 9h8M8 13h8M8 17h4",
+  imprimir:
+    "M6 9V3h12v6M6 18H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-1M6 14h12v7H6Z",
 };
 
 export function Icono({

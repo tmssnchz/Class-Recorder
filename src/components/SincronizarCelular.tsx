@@ -12,8 +12,10 @@ import { formatearBytes, formatearFecha, formatearHora } from "../lib/format";
 import { bloqueEn } from "../lib/horario";
 import {
   archivarImportado,
+  elegirArchivos,
   escanearInbox,
   importarAudio,
+  vieneDelInbox,
   type ArchivoInbox,
 } from "../lib/importar";
 import { SIN_CLASE, SIN_UNIDAD } from "../types";
@@ -32,11 +34,22 @@ interface Fila {
   sugerida: boolean;
 }
 
+/**
+ * De dónde salen los audios de esta sesión de importación.
+ *
+ * Son dos entradas distintas y con expectativas distintas: "carpeta" revisa
+ * lo que Drive haya bajado, "archivos" abre el diálogo del sistema. Se
+ * comparte la ventana porque de ahí en adelante el flujo es idéntico —
+ * asignar clase, estimar fecha, convertir e indexar.
+ */
+export type ModoImportacion = "carpeta" | "archivos";
+
 interface Props {
+  modo: ModoImportacion;
   onCerrar(): void;
 }
 
-export function SincronizarCelular({ onCerrar }: Props) {
+export function SincronizarCelular({ modo, onCerrar }: Props) {
   const { datos, config, agregarGrabacion, actualizarConfig } = useStore();
   const [escaneando, setEscaneando] = useState(true);
   const [filas, setFilas] = useState<Fila[]>([]);
@@ -47,7 +60,13 @@ export function SincronizarCelular({ onCerrar }: Props) {
   useEffect(() => {
     let vigente = true;
     void (async () => {
-      if (!config.carpetaInbox) return;
+      // El escaneo del Inbox solo corre cuando el usuario pidió justamente eso.
+      // En modo "archivos" no se toca Drive: abrir el diálogo del sistema no
+      // debería quedarse esperando a que una carpeta sincronizada responda.
+      if (modo !== "carpeta" || !config.carpetaInbox) {
+        setEscaneando(false);
+        return;
+      }
       try {
         const encontrados = await escanearInbox(config.carpetaInbox);
         if (!vigente) return;
@@ -87,10 +106,49 @@ export function SincronizarCelular({ onCerrar }: Props) {
     };
     // Se re-escanea si cambia el permiso de usar la hora de subida: eso puede
     // convertir un "sin fecha confiable" en una sugerencia válida.
-  }, [config.carpetaInbox, config.usarHoraDeSubida, datos.horario]);
+  }, [modo, config.carpetaInbox, config.usarHoraDeSubida, datos.horario]);
 
   const actualizar = (ruta: string, cambios: Partial<Fila>) =>
     setFilas((fs) => fs.map((f) => (f.archivo.ruta === ruta ? { ...f, ...cambios } : f)));
+
+  /** Archivos elegidos a mano desde el disco, con el mismo tratamiento. */
+  const agregarDelDisco = async () => {
+    setError(null);
+    try {
+      const elegidos = await elegirArchivos("audio");
+      const nuevas: Fila[] = [];
+      for (const archivo of elegidos) {
+        if (filas.some((f) => f.archivo.ruta === archivo.ruta)) continue;
+        const metadata = await fechaEmbebida(archivo.ruta);
+        const estimada = estimarFecha(
+          archivo.nombre,
+          archivo.llegadaMs,
+          metadata,
+          config.usarHoraDeSubida === true,
+        );
+        const claseId = sugerirClase(estimada, datos.horario, bloqueEn);
+        nuevas.push({
+          archivo,
+          claseId,
+          unidadId: null,
+          estado: "pendiente",
+          estimada,
+          sugerida: claseId !== null,
+        });
+      }
+      setFilas((fs) => [...fs, ...nuevas]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  // En modo "archivos" el diálogo del sistema se abre de una: el usuario ya
+  // dijo qué quería al apretar el botón, no tiene sentido pedirle un click más.
+  useEffect(() => {
+    if (modo === "archivos") void agregarDelDisco();
+    // Solo al montar: reabrir el diálogo en cada render sería insoportable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const importarTodas = async () => {
     setImportando(true);
@@ -119,9 +177,11 @@ export function SincronizarCelular({ onCerrar }: Props) {
 
         await agregarGrabacion(grabacion);
         // Recién se archiva cuando la grabación ya quedó indexada: si algo
-        // falla antes, el archivo sigue en el Inbox para reintentar.
-        if (config.carpetaInbox) {
-          await archivarImportado(fila.archivo.ruta, config.carpetaInbox);
+        // falla antes, el archivo sigue en el Inbox para reintentar. Lo que el
+        // usuario eligió a mano del disco no se toca: mover el archivo de
+        // alguien a una subcarpeta que no creó sería una sorpresa fea.
+        if (vieneDelInbox(fila.archivo.ruta, config.carpetaInbox)) {
+          await archivarImportado(fila.archivo.ruta, config.carpetaInbox!);
         }
         actualizar(fila.archivo.ruta, { estado: "listo" });
       } catch (e) {
@@ -147,10 +207,38 @@ export function SincronizarCelular({ onCerrar }: Props) {
         className="modal modal-sincronizar"
         role="dialog"
         aria-modal="true"
-        aria-label="Sincronizar desde el celular"
+        aria-label={
+          modo === "carpeta" ? "Sincronizar desde el celular" : "Importar archivos de audio"
+        }
         onClick={(e) => e.stopPropagation()}
       >
-        <h3>Sincronizar desde el celular</h3>
+        <h3>
+          {modo === "carpeta" ? "Sincronizar desde el celular" : "Importar archivos de audio"}
+        </h3>
+
+        <p className="sutil">
+          {modo === "carpeta"
+            ? "Lo que el celular haya subido a la carpeta sincronizada."
+            : "Audios que ya tienes en el computador."}
+          <button className="btn btn-mini" onClick={() => void agregarDelDisco()}>
+            <Icono nombre="carpeta" tamano={14} />{" "}
+            {modo === "carpeta" ? "Añadir archivos del computador" : "Elegir más archivos"}
+          </button>
+        </p>
+
+        {modo === "carpeta" && !config.carpetaInbox && (
+          <div className="aviso aviso-info">
+            <Icono nombre="nube" />
+            <span>
+              Todavía no hay carpeta sincronizada. Se configura una sola vez en{" "}
+              <strong>Configuración › Importar desde el celular</strong>: la app
+              crea una carpeta <code>ClassRecorder_Inbox</code> dentro de tu
+              OneDrive o Drive, y desde el celular subes ahí los audios y las
+              fotos de apuntes. Mientras tanto puedes elegir archivos del
+              computador.
+            </span>
+          </div>
+        )}
 
         {error && (
           <div className="aviso aviso-error">
@@ -207,7 +295,11 @@ export function SincronizarCelular({ onCerrar }: Props) {
         {escaneando ? (
           <p className="sutil">Buscando grabaciones nuevas…</p>
         ) : filas.length === 0 ? (
-          <p className="vacio">No hay grabaciones nuevas para importar.</p>
+          <p className="vacio">
+            {modo === "carpeta"
+              ? "No hay grabaciones nuevas en la carpeta sincronizada."
+              : "No se eligió ningún archivo."}
+          </p>
         ) : (
           <>
             <p className="sutil">

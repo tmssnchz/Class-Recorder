@@ -1,5 +1,8 @@
 mod almacenamiento;
 mod descargas;
+mod escaneo;
+mod htr;
+mod marcadores;
 mod importar;
 mod respaldo;
 mod transcripcion;
@@ -49,6 +52,34 @@ fn espacio_disco(ruta: String) -> Result<EspacioDisco, String> {
         total_bytes: disco.total_space(),
         libre_bytes: disco.available_space(),
     })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InfoSistema {
+    pub ram_total_bytes: u64,
+    pub ram_libre_bytes: u64,
+    /// Hilos lógicos. Es lo que se le pasa a whisper y a llama.cpp con `-t`.
+    pub nucleos: u32,
+}
+
+/// Datos de la máquina para poder recomendar un motor y un modelo que de
+/// verdad entren acá, en vez de dejar al usuario adivinar entre nueve opciones.
+///
+/// No informa la GPU: los dos motores que usa la app corren en CPU (las builds
+/// que se descargan son las de CPU), así que la RAM y los núcleos son lo único
+/// que cambia la recomendación.
+#[tauri::command]
+fn info_sistema() -> InfoSistema {
+    let mut sistema = sysinfo::System::new();
+    sistema.refresh_memory();
+    InfoSistema {
+        ram_total_bytes: sistema.total_memory(),
+        ram_libre_bytes: sistema.available_memory(),
+        nucleos: std::thread::available_parallelism()
+            .map(|n| n.get() as u32)
+            .unwrap_or(4),
+    }
 }
 
 /// Sube por los padres hasta encontrar uno que exista. Sin `canonicalize`:
@@ -146,6 +177,7 @@ pub fn run() {
         .manage(transcripcion::Procesos::default())
         .invoke_handler(tauri::generate_handler![
             espacio_disco,
+            info_sistema,
             almacenamiento::detectar_onedrive,
             almacenamiento::crear_carpeta_en_raiz,
             almacenamiento::es_placeholder,
@@ -155,18 +187,26 @@ pub fn run() {
             descargas::descargar_modelo_faster,
             descargas::instalar_whisper,
             descargas::instalar_faster_whisper,
+            descargas::instalar_llamacpp,
             respaldo::medir_respaldo,
             respaldo::exportar_respaldo,
             importar::detectar_drive,
             importar::escanear_inbox,
+            importar::escanear_inbox_fotos,
             importar::archivar_importado,
             importar::preparar_inbox,
+            escaneo::analizar_foto,
+            escaneo::rectificar_foto,
+            escaneo::generar_qr_png,
+            escaneo::generar_marcador_png,
+            htr::reconocer_texto_local,
             transcripcion::transcribir,
             transcripcion::transcribir_faster,
             transcripcion::cancelar_transcripcion,
             transcripcion::hilos_recomendados,
             transcripcion_api::cifrar_clave_api,
             transcripcion_api::transcribir_api,
+            transcripcion_api::reconocer_apunte_api,
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar ClassRecorder");

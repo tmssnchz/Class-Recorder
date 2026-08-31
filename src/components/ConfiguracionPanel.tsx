@@ -60,6 +60,7 @@ import type {
   PerfilApi,
   ProveedorApi,
 } from "../types";
+import { SeccionApuntes } from "./apuntes/SeccionApuntes";
 import { Icono } from "./ui/Icono";
 
 interface ProgresoDescarga {
@@ -83,6 +84,24 @@ interface ResumenRespaldo {
 
 /** Duración de referencia para las estimaciones que se muestran: 2 horas. */
 const CLASE_TIPO_SEG = 7200;
+
+/**
+ * Secciones de la configuración.
+ *
+ * Antes era una sola columna con nueve tarjetas seguidas: para llegar al motor
+ * de transcripción había que pasar de largo los atajos de teclado y la carpeta
+ * de OneDrive. Agrupar por tema deja cada pantalla corta y hace evidente dónde
+ * buscar cada cosa.
+ */
+const GRUPOS = [
+  { id: "grabacion", nombre: "Grabación", icono: "micro" },
+  { id: "nube", nombre: "Almacenamiento y nube", icono: "nube" },
+  { id: "transcripcion", nombre: "Transcripción de audio", icono: "biblioteca" },
+  { id: "apuntes", nombre: "Apuntes escaneados", icono: "apunte" },
+  { id: "respaldo", nombre: "Respaldo", icono: "carpeta" },
+] as const;
+
+type Grupo = (typeof GRUPOS)[number]["id"];
 
 export function ConfiguracionPanel() {
   const { datos, config, actualizarConfig, remapearRaiz } = useStore();
@@ -521,6 +540,8 @@ export function ConfiguracionPanel() {
 
   const descargando = (tarea: string) => descargas[tarea];
 
+  const [grupo, setGrupo] = useState<Grupo>("grabacion");
+
   return (
     <section className="panel">
       <header className="panel-cabecera">
@@ -533,6 +554,20 @@ export function ConfiguracionPanel() {
         </div>
       </header>
 
+      <nav className="pestanas-config" aria-label="Secciones de configuración">
+        {GRUPOS.map((g) => (
+          <button
+            key={g.id}
+            className={`pestana ${grupo === g.id ? "activa" : ""}`}
+            aria-current={grupo === g.id}
+            onClick={() => setGrupo(g.id)}
+          >
+            <Icono nombre={g.icono} tamano={16} />
+            {g.nombre}
+          </button>
+        ))}
+      </nav>
+
       {errorDescarga && (
         <div className="aviso aviso-error">
           <Icono nombre="alerta" />
@@ -544,6 +579,7 @@ export function ConfiguracionPanel() {
       )}
 
       {/* ------------------------------------------------------------ audio */}
+      {grupo === "grabacion" && (
       <div className="tarjeta">
         <h3 className="titulo-seccion">Grabación</h3>
 
@@ -568,6 +604,92 @@ export function ConfiguracionPanel() {
           </div>
         </div>
 
+
+        <div className="ajuste">
+          <div className="ajuste-texto">
+            <strong>Micrófono</strong>
+            <small className="sutil">
+              {micros.some((m) => m.label)
+                ? "Se usa el seleccionado al iniciar una grabación."
+                : "Windows oculta los nombres hasta conceder el permiso."}
+            </small>
+          </div>
+          {micros.some((m) => m.label) ? (
+            <select
+              value={config.microfonoId ?? ""}
+              onChange={(e) =>
+                void actualizarConfig({ microfonoId: e.target.value || null })
+              }
+            >
+              <option value="">Predeterminado del sistema</option>
+              {micros.map((m) => (
+                <option key={m.deviceId} value={m.deviceId}>
+                  {m.label || m.deviceId.slice(0, 12)}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <button className="btn" onClick={() => void pedirNombresDeMicros()}>
+              Ver micrófonos
+            </button>
+          )}
+        </div>
+
+        <div className="ajuste">
+          <div className="ajuste-texto">
+            <strong>Avisar si no se oye nada durante</strong>
+            <small className="sutil">
+              Detecta un micrófono desconectado o silenciado a mitad de clase.
+              Nunca detiene la grabación, solo muestra un aviso. 0 lo desactiva.
+            </small>
+          </div>
+          <div className="con-sufijo">
+            <input
+              type="number"
+              min={0}
+              max={60}
+              step={1}
+              value={config.minutosSilencioAviso}
+              onChange={(e) =>
+                void actualizarConfig({
+                  minutosSilencioAviso: Math.max(0, Number(e.target.value)),
+                })
+              }
+            />
+            <span>min</span>
+          </div>
+        </div>
+
+        <div className="ajuste">
+          <div className="ajuste-texto">
+            <strong>Avisar si queda menos de</strong>
+            <small className="sutil">
+              Se comprueba justo antes de empezar a grabar.
+            </small>
+          </div>
+          <div className="con-sufijo">
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={0.5}
+              value={config.umbralDiscoGB}
+              onChange={(e) =>
+                void actualizarConfig({
+                  umbralDiscoGB: Math.max(0, Number(e.target.value)),
+                })
+              }
+            />
+            <span>GB</span>
+          </div>
+        </div>
+      </div>
+      )}
+
+      {/* ------------------------------------- dónde se guarda todo */}
+      {grupo === "nube" && (
+      <div className="tarjeta">
+        <h3 className="titulo-seccion">Dónde se guardan las grabaciones</h3>
         <div className="ajuste">
           <div className="ajuste-texto">
             <strong>Ubicación de las grabaciones</strong>
@@ -734,88 +856,11 @@ export function ConfiguracionPanel() {
             </div>
           </>
         )}
-
-        <div className="ajuste">
-          <div className="ajuste-texto">
-            <strong>Micrófono</strong>
-            <small className="sutil">
-              {micros.some((m) => m.label)
-                ? "Se usa el seleccionado al iniciar una grabación."
-                : "Windows oculta los nombres hasta conceder el permiso."}
-            </small>
-          </div>
-          {micros.some((m) => m.label) ? (
-            <select
-              value={config.microfonoId ?? ""}
-              onChange={(e) =>
-                void actualizarConfig({ microfonoId: e.target.value || null })
-              }
-            >
-              <option value="">Predeterminado del sistema</option>
-              {micros.map((m) => (
-                <option key={m.deviceId} value={m.deviceId}>
-                  {m.label || m.deviceId.slice(0, 12)}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <button className="btn" onClick={() => void pedirNombresDeMicros()}>
-              Ver micrófonos
-            </button>
-          )}
-        </div>
-
-        <div className="ajuste">
-          <div className="ajuste-texto">
-            <strong>Avisar si no se oye nada durante</strong>
-            <small className="sutil">
-              Detecta un micrófono desconectado o silenciado a mitad de clase.
-              Nunca detiene la grabación, solo muestra un aviso. 0 lo desactiva.
-            </small>
-          </div>
-          <div className="con-sufijo">
-            <input
-              type="number"
-              min={0}
-              max={60}
-              step={1}
-              value={config.minutosSilencioAviso}
-              onChange={(e) =>
-                void actualizarConfig({
-                  minutosSilencioAviso: Math.max(0, Number(e.target.value)),
-                })
-              }
-            />
-            <span>min</span>
-          </div>
-        </div>
-
-        <div className="ajuste">
-          <div className="ajuste-texto">
-            <strong>Avisar si queda menos de</strong>
-            <small className="sutil">
-              Se comprueba justo antes de empezar a grabar.
-            </small>
-          </div>
-          <div className="con-sufijo">
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.5}
-              value={config.umbralDiscoGB}
-              onChange={(e) =>
-                void actualizarConfig({
-                  umbralDiscoGB: Math.max(0, Number(e.target.value)),
-                })
-              }
-            />
-            <span>GB</span>
-          </div>
-        </div>
       </div>
+      )}
 
       {/* --------------------------------------------------------- atajos */}
+      {grupo === "grabacion" && (
       <div className="tarjeta">
         <h3 className="titulo-seccion">Atajos de teclado</h3>
 
@@ -907,8 +952,10 @@ export function ConfiguracionPanel() {
           </>
         )}
       </div>
+      )}
 
       {/* --------------------------------------------------- transcripción */}
+      {grupo === "transcripcion" && (
       <div className="tarjeta">
         <h3 className="titulo-seccion">Transcripción</h3>
 
@@ -1013,10 +1060,20 @@ export function ConfiguracionPanel() {
           </div>
         </div>
       </div>
+      )}
 
+      {grupo === "transcripcion" && (
       <SeccionApiTranscripcion />
+      )}
+
+      {grupo === "apuntes" && (
+      <section className="tarjeta">
+        <SeccionApuntes />
+      </section>
+      )}
 
       {/* --------------------------------------------------------- modelos */}
+      {grupo === "transcripcion" && (
       <div className="tarjeta">
         <h3 className="titulo-seccion">
           Motor y modelos ·{" "}
@@ -1217,8 +1274,10 @@ export function ConfiguracionPanel() {
           </>
         )}
       </div>
+      )}
 
       {/* -------------------------------------------------------- respaldo */}
+      {grupo === "nube" && (
       <div className="tarjeta">
         <h3 className="titulo-seccion">Importar desde el celular</h3>
         <p className="sutil" style={{ marginBottom: 14 }}>
@@ -1296,7 +1355,9 @@ export function ConfiguracionPanel() {
           </div>
         )}
       </div>
+      )}
 
+      {grupo === "respaldo" && (
       <div className="tarjeta">
         <h3 className="titulo-seccion">Respaldo</h3>
         <p className="sutil" style={{ marginBottom: 14 }}>
@@ -1407,6 +1468,7 @@ export function ConfiguracionPanel() {
           )}
         </div>
       </div>
+      )}
 
       {pendienteMigracion && (
         <ModalMigracion

@@ -4,6 +4,97 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Este proyecto todavía no sigue versionado semántico estricto (está en `0.x`,
 así que cualquier versión puede traer cambios incompatibles).
 
+## [0.4.0] - 2026-08-31
+
+### Agregado
+
+- **Apuntes escritos a mano** — tercera fuente de contenido, junto a la
+  grabación de audio y la importación desde el celular. Se fotografía la hoja,
+  la foto llega por la misma carpeta de Drive que ya se usa para los audios, y
+  la app recorta la hoja, corrige la perspectiva, la limpia y reconoce el
+  texto.
+- **Detección de la hoja con y sin marcadores**. Con la plantilla imprimible se
+  leen cuatro marcadores ArUco de 10 mm en las esquinas y el recorte sale
+  exacto; sin ella se detecta el borde del papel por contraste. En los dos casos
+  se pueden arrastrar las cuatro esquinas a mano, que es el plan B obligatorio
+  cuando la detección falla.
+- **Marcadores ArUco en vez de QR en las esquinas**, para tolerar impresoras
+  que entregan gris en vez de negro. En los mismos 10 mm impresos, cada celda
+  de un ArUco mide 1,43 mm contra 0,40 mm de un módulo de QR: tres veces y media
+  más grueso. Medido contra una impresión clara simulada, el ArUco decodifica
+  con 3 píxeles por celda donde el QR fallaba. El tamaño de papel, que un id de
+  diccionario no puede transportar, viaja en un QR chico abajo al centro.
+- **Plantilla imprimible parametrizada** por tamaño de papel (B5, A4, Carta,
+  A5) y lado del anillado, con flujo de impresión a doble cara para
+  impresoras sin dúplex automático: dos tandas, volteo en el medio y una hoja
+  de calibración "A/B" para saber si esa impresora invierte el orden. El
+  reverso se genera con el margen del anillado espejado: los agujeros están en
+  el papel y no en la cara, así que al dar vuelta la hoja cambian de borde.
+- **Lectura de marcadores tolerante a fotos reales.** Sobre una hoja impresa
+  en gris claro y con luz despareja, una sola pasada del lector encontraba las
+  cuatro cuadrículas pero solo decodificaba una. Ahora se reintenta con la
+  imagen normalizada y a media resolución, y si aun así falta un marcador se
+  estima como la esquina opuesta del paralelogramo — avisando que el recorte
+  es aproximado. Medido sobre una foto real: de 1 marcador leído a los 4.
+- **Reconocimiento de texto manuscrito (HTR)** con tres modelos locales
+  descargables (LightOnOCR 1B, GLM-OCR, dots.ocr 2B) corriendo sobre
+  `llama-mtmd-cli.exe` de llama.cpp, o vía API externa reusando los mismos
+  perfiles y claves que ya existían para la transcripción de audio.
+- **Recomendación de modelo según la máquina**: mira la RAM y los núcleos y
+  propone el mejor modelo que entra. El cálculo vive en `lib/hardware.ts`,
+  suelto, para poder aplicarlo también a los modelos de whisper.
+- **Editor de apunte** con la hoja escaneada al lado del texto reconocido,
+  editable, reordenamiento de páginas y marcado de hojas que son sobre todo un
+  diagrama.
+- **Aviso de fotos inservibles antes de procesarlas**: se mide el desenfoque y
+  la exposición y se avisa en vez de generar un escaneo o un texto basura en
+  silencio. También se detecta cuando hay dos hojas en la misma foto.
+- **Búsqueda dentro de los apuntes** desde la biblioteca, junto a las
+  transcripciones, y exportación del apunte a PDF (hoja + texto) o Markdown.
+- **Importar archivos desde el computador**, tanto audios como fotos de
+  apuntes. Antes la única entrada era la carpeta sincronizada con Drive, así
+  que sin configurarla no había forma de meter nada.
+- **Tamaño de papel a medida** en la plantilla: ancho, alto y margen de
+  anillado se escriben en milímetros, centímetros o pulgadas. Varios recambios
+  de binder que se venden como "B5" no lo son — 173 × 250 mm es de los más
+  comunes y viene como preset propio, junto al B5 ISO y al B5 JIS. La unidad
+  es solo de entrada: adentro y dentro del QR todo son milímetros.
+
+### Cambiado
+
+- `datos.json` gana la lista `apuntes` y `config.json` la sección del mismo
+  nombre. Un archivo anterior sigue siendo válido: los campos nuevos se
+  rellenan con los valores por defecto al cargar.
+
+### Arreglado
+
+- **Los colores de la tinta se perdían al limpiar el escaneo.** La versión
+  inicial le restaba un punto de negro a cada canal por separado, y eso destruye
+  el tono de cualquier tinta oscura: una lapicera azul tiene luminancia ~66 y el
+  punto de negro caía justo encima, así que salía negra. El rojo sobrevivía por
+  casualidad. Ahora el realce se calcula sobre la luminancia y los tres canales
+  se escalan por el mismo factor: al ser una multiplicación y no una resta, el
+  tono se conserva exacto para cualquier color.
+- **La sombra de la mano o del teléfono sobrevivía al escaneo.** El radio con el
+  que se estima el papel estaba en 1/20 del lado corto; tan grande que la
+  estimación se aplanaba y dejaba de seguir la sombra. Bajado a 1/40.
+- **Una hoja casi sin escribir salía toda negra.** Sin tinta, el punto de negro
+  calculado se subía por encima del de blanco y el estirado invertía la página
+  entera. Ahora hay un rango mínimo garantizado.
+- **El PDF de la plantilla no se podía abrir** ("Not allowed to open path"): el
+  plugin `opener` tenía el comando habilitado pero su scope de rutas vacío. Y si
+  falla al abrirlo, ahora se avisa como nota con la ruta en vez de como error,
+  porque el archivo ya está en disco.
+- **Los grupos de botones eran invisibles** en la cabecera de Grabar, Apuntes y
+  el editor: usaban la clase de las filas de lista, que se esconde con `opacity`
+  hasta pasar el mouse por su `.item` contenedor.
+- **La foto se veía girada** respecto de los tiradores de las esquinas: el
+  análisis trabaja sobre la imagen con la orientación EXIF ya aplicada y la
+  interfaz mostraba el archivo crudo. Ahora el backend devuelve una vista previa
+  ya orientada y es esa la que se muestra.
+- **Volvió el botón "Sincronizar desde el celular"**, que había quedado
+  reemplazado en vez de acompañado por el de importar archivos.
+
 ## [0.3.2] - 2026-08-26
 
 ### Arreglado

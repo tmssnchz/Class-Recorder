@@ -147,6 +147,93 @@ export interface Material {
 
 export type NivelMaterial = "clase" | "unidad" | "grabacion";
 
+// ------------------------------------------------- apuntes escaneados
+
+/**
+ * Motor de reconocimiento de texto manuscrito.
+ *
+ * Los tres locales son VLM en GGUF que corren con `llama-mtmd-cli.exe`, el
+ * mismo patrón de "ejecutable descargado aparte" que whisper.cpp. "api" manda
+ * la imagen a un proveedor externo, con las mismas claves que ya se usan para
+ * la transcripción de audio.
+ */
+export type MotorHtr = "glm-ocr" | "dots-ocr" | "lighton-ocr" | "api";
+
+export type IdModeloHtr = "glm-ocr" | "dots-ocr" | "lighton-ocr";
+
+/** Lado del cuaderno donde va el anillado: ahí no se imprime nada. */
+export type LadoAnillado = "izquierda" | "derecha" | "arriba";
+
+export type ModoEscaneo = "color" | "gris" | "original";
+
+/**
+ * Geometría de una hoja de la plantilla imprimible. Nada de esto está fijo en
+ * el código: viaja dentro del propio QR, así que agregar un tamaño de papel es
+ * agregar una entrada al catálogo y nada más.
+ */
+export interface GeometriaPlantilla {
+  anchoMm: number;
+  altoMm: number;
+  margenAnilladoMm: number;
+  ladoAnillado: LadoAnillado;
+}
+
+/** Una hoja digitalizada dentro de un apunte. */
+export interface PaginaApunte {
+  id: string;
+  /** Ruta absoluta del JPEG ya rectificado y limpio. */
+  archivo: string;
+  /** Foto original archivada, o null si el usuario eligió no conservarla. */
+  original: string | null;
+  /** Orden dentro del apunte, empezando en 1. */
+  numero: number;
+  ancho: number;
+  alto: number;
+  bytes: number;
+  /** Texto reconocido. Editable: es lo que se indexa para la búsqueda. */
+  texto: string;
+  /** Motor con el que se reconoció. null = todavía sin reconocer. */
+  motorHtr: MotorHtr | null;
+  /** true si el usuario lo corrigió a mano: un re-reconocimiento no lo pisa. */
+  textoEditado: boolean;
+  /**
+   * true cuando la hoja es sobre todo un diagrama o un esquema. Se marca en
+   * vez de forzar un texto reconocido que sería inventado.
+   */
+  soloVisual: boolean;
+  /** Avisos del análisis de la foto (movida, oscura, sin marcadores…). */
+  advertencias: string[];
+}
+
+/**
+ * Apunte de papel digitalizado. Cuelga de exactamente uno de los tres niveles
+ * (clase, unidad o grabación), igual que un `Material`, pero es su propia
+ * entidad porque tiene páginas ordenadas y texto reconocido editable, que no
+ * entran en el modelo de un archivo suelto.
+ */
+export interface Apunte {
+  id: string;
+  titulo: string;
+  claseId: string | null;
+  unidadId: string | null;
+  grabacionId: string | null;
+  claseNombre: string;
+  unidadNombre: string;
+  carpeta: string;
+  fechaISO: string;
+  paginas: PaginaApunte[];
+  /** Idioma que se le declara al motor de reconocimiento. */
+  idioma: string;
+  /** .txt con el texto de todas las páginas, para la búsqueda de la biblioteca. */
+  archivoTexto: string;
+  tags: string[];
+  /**
+   * Id del apunte que este reemplaza cuando se vuelve a escanear la misma
+   * hoja. El viejo no se borra: queda como versión anterior.
+   */
+  reemplazaA: string | null;
+}
+
 /**
  * Un bloque del horario semanal. `dia` va de 1 (lunes) a 7 (domingo), como
  * ISO-8601, para poder ordenar y comparar sin depender del nombre escrito.
@@ -175,6 +262,7 @@ export interface BaseDatos {
   clases: Clase[];
   grabaciones: Grabacion[];
   materiales: Material[];
+  apuntes: Apunte[];
   horario: BloqueHorario[];
 }
 
@@ -237,6 +325,48 @@ export interface Config {
   usarHoraDeSubida: boolean | null;
   /** Transcripción vía API externa (Groq/OpenAI/personalizado), con la propia key del usuario. */
   apiTranscripcion: ConfigApiTranscripcion;
+  /** Digitalización de apuntes escritos a mano. */
+  apuntes: ConfigApuntes;
+}
+
+export interface ConfigApuntes {
+  /** Motor de reconocimiento que se usa sin preguntar. */
+  motor: MotorHtr;
+  /** Modelo local elegido, aunque el motor esté puesto en "api". */
+  modelo: IdModeloHtr;
+  /** Idioma del texto manuscrito, igual que `idiomaTranscripcion` para el audio. */
+  idioma: string;
+  /** Resolución del escaneo guardado. 200 dpi alcanza para leer manuscrita. */
+  dpiEscaneo: number;
+  /** Calidad JPEG del escaneo guardado. */
+  calidadEscaneo: number;
+  /**
+   * Cómo se guarda el escaneo:
+   *   "color"    limpia sombras y conserva la tinta (resaltador, rojo)
+   *   "gris"     limpia sombras y va a escala de grises: archivo más liviano
+   *   "original" sin limpieza, la foto rectificada tal cual
+   */
+  modoEscaneo: ModoEscaneo;
+  /**
+   * true = la foto original queda archivada junto al escaneo. Ocupa el doble,
+   * pero permite volver a recortar si el encuadre salió mal.
+   */
+  conservarOriginal: boolean;
+  /** Papel de la plantilla imprimible que usa este usuario. */
+  plantilla: GeometriaPlantilla;
+  /**
+   * true = cuando se leen los cuatro marcadores y no hay avisos, la hoja se
+   * confirma sola y se pasa a la siguiente. Las que dan problema quedan
+   * pendientes al final, para resolverlas juntas.
+   */
+  confirmacionAutomatica: boolean;
+  /** Imprimir el número de página abajo de cada hoja. */
+  numeroDePagina: boolean;
+  /**
+   * Cuál de las dos caras sale primero al reimprimir el reverso. Se calibra
+   * una vez con la hoja de prueba, porque depende de la impresora.
+   */
+  reversoEnOrdenInverso: boolean;
 }
 
 /** Una clave de API guardada, con un nombre propio para distinguirla de otras. */
@@ -277,6 +407,7 @@ export const BASE_DATOS_VACIA: BaseDatos = {
   clases: [],
   grabaciones: [],
   materiales: [],
+  apuntes: [],
   horario: [],
 };
 
@@ -311,6 +442,25 @@ export const CONFIG_POR_DEFECTO: Config = {
     habilitada: false,
     perfiles: [],
     predeterminado: { tipo: "local" },
+  },
+  apuntes: {
+    motor: "glm-ocr",
+    modelo: "glm-ocr",
+    idioma: "es",
+    dpiEscaneo: 200,
+    calidadEscaneo: 82,
+    modoEscaneo: "color",
+    confirmacionAutomatica: true,
+    numeroDePagina: true,
+    conservarOriginal: true,
+    // B5 con anillado a la izquierda: el cuaderno tipo binder más común.
+    plantilla: {
+      anchoMm: 176,
+      altoMm: 250,
+      margenAnilladoMm: 18,
+      ladoAnillado: "izquierda",
+    },
+    reversoEnOrdenInverso: true,
   },
 };
 

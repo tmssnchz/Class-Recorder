@@ -4,9 +4,14 @@ import { useGrabador } from "../estado/grabador";
 import { useStore } from "../estado/store";
 import { esPlaceholder } from "../lib/almacenamiento";
 import { construirArbol } from "../lib/arbol";
-import { buscarEnTranscripciones, type Coincidencia } from "../lib/busqueda";
+import {
+  buscarEnApuntes,
+  buscarEnTranscripciones,
+  type Coincidencia,
+  type CoincidenciaApunte,
+} from "../lib/busqueda";
 import { formatearDuracion, formatearFecha, formatearHora } from "../lib/format";
-import { type Grabacion } from "../types";
+import { type Apunte, type Grabacion } from "../types";
 import { Calendario } from "./biblioteca/Calendario";
 import { DetalleGrabacion } from "./biblioteca/DetalleGrabacion";
 import { Pendientes } from "./biblioteca/Pendientes";
@@ -14,7 +19,7 @@ import { Icono } from "./ui/Icono";
 
 type Vista = "arbol" | "calendario" | "pendientes";
 
-export function BibliotecaPanel() {
+export function BibliotecaPanel({ onAbrirApunte }: { onAbrirApunte?(apunteId: string): void }) {
   const { datos } = useStore();
   const { conversiones } = useGrabador();
 
@@ -31,6 +36,7 @@ export function BibliotecaPanel() {
     new Map(),
   );
   const [buscando, setBuscando] = useState(false);
+  const [enApuntes, setEnApuntes] = useState<Map<string, CoincidenciaApunte>>(new Map());
 
   const hayTranscripciones = datos.grabaciones.some(
     (g) => g.transcripcion || g.notaClase,
@@ -43,15 +49,20 @@ export function BibliotecaPanel() {
   useEffect(() => {
     if (!enTranscripciones || busqueda.trim().length < 3) {
       setCoincidencias(new Map());
+      setEnApuntes(new Map());
       setBuscando(false);
       return;
     }
     setBuscando(true);
     let vigente = true;
     const temporizador = setTimeout(() => {
-      void buscarEnTranscripciones(datos.grabaciones, busqueda).then((r) => {
+      void Promise.all([
+        buscarEnTranscripciones(datos.grabaciones, busqueda),
+        buscarEnApuntes(datos.apuntes, busqueda),
+      ]).then(([enTexto, enHojas]) => {
         if (!vigente) return;
-        setCoincidencias(r);
+        setCoincidencias(enTexto);
+        setEnApuntes(enHojas);
         setBuscando(false);
       });
     }, 350);
@@ -232,13 +243,20 @@ export function BibliotecaPanel() {
         <div className="biblioteca-layout">
           <div className="columna-lista">
             {enTranscripciones && busqueda.trim().length >= 3 ? (
-              <ResultadosTexto
-                coincidencias={coincidencias}
-                grabaciones={datos.grabaciones}
-                buscando={buscando}
-                seleccionada={seleccionada}
-                onSeleccionar={setSeleccionada}
-              />
+              <>
+                <ResultadosTexto
+                  coincidencias={coincidencias}
+                  grabaciones={datos.grabaciones}
+                  buscando={buscando}
+                  seleccionada={seleccionada}
+                  onSeleccionar={setSeleccionada}
+                />
+                <ResultadosApuntes
+                  coincidencias={enApuntes}
+                  apuntes={datos.apuntes}
+                  onAbrir={onAbrirApunte}
+                />
+              </>
             ) : vista === "pendientes" ? (
               <Pendientes
                 grabaciones={filtradas}
@@ -429,6 +447,58 @@ function ResultadosTexto({
         );
       })}
     </ul>
+  );
+}
+
+/**
+ * Lo encontrado dentro de los apuntes escaneados. Va aparte de las
+ * transcripciones y no mezclado: son dos cosas distintas y el texto de un
+ * apunte puede tener errores de reconocimiento, así que conviene que se vea
+ * de dónde salió cada resultado.
+ */
+function ResultadosApuntes({
+  coincidencias,
+  apuntes,
+  onAbrir,
+}: {
+  coincidencias: Map<string, CoincidenciaApunte>;
+  apuntes: Apunte[];
+  onAbrir?(apunteId: string): void;
+}) {
+  if (coincidencias.size === 0) return null;
+
+  const ordenadas = [...coincidencias.values()].sort((a, b) => b.cantidad - a.cantidad);
+
+  return (
+    <>
+      <h3 className="titulo-seccion">En apuntes escaneados</h3>
+      <ul className="lista">
+        {ordenadas.map((c) => {
+          const a = apuntes.find((x) => x.id === c.apunteId);
+          if (!a) return null;
+          return (
+            <li
+              key={c.apunteId}
+              className="item item-resultado"
+              onClick={() => onAbrir?.(c.apunteId)}
+            >
+              <div className="item-texto">
+                <strong>{a.titulo}</strong>
+                <small className="sutil">
+                  {a.claseNombre} · {a.unidadNombre} · {formatearFecha(a.fechaISO)} ·{" "}
+                  {c.cantidad} {c.cantidad === 1 ? "aparición" : "apariciones"}
+                </small>
+                {c.fragmentos.map((f, i) => (
+                  <small key={i} className="fragmento">
+                    {f}
+                  </small>
+                ))}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }
 
