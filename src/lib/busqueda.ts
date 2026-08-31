@@ -9,13 +9,20 @@
  */
 import { exists, readTextFile } from "@tauri-apps/plugin-fs";
 
-import type { Grabacion } from "../types";
+import type { Apunte, Grabacion } from "../types";
 
 /** ruta del .txt → contenido ya leído. */
 const cache = new Map<string, string>();
 
 export interface Coincidencia {
   grabacionId: string;
+  cantidad: number;
+  fragmentos: string[];
+}
+
+/** Lo mismo, pero para un apunte digitalizado. */
+export interface CoincidenciaApunte {
+  apunteId: string;
   cantidad: number;
   fragmentos: string[];
 }
@@ -92,6 +99,43 @@ export async function buscarEnTranscripciones(
     // recorte de transcripción.
     const fragmentos = [...enNota.fragmentos, ...enTranscripcion.fragmentos].slice(0, 3);
     resultado.set(g.id, { grabacionId: g.id, cantidad, fragmentos });
+  }
+
+  return resultado;
+}
+
+/**
+ * Busca dentro del texto reconocido de los apuntes escaneados.
+ *
+ * Se lee el .txt que deja el reconocimiento, con el mismo caché que las
+ * transcripciones: el texto no vive en datos.json por la misma razón, y así
+ * corregir una página invalida solo su archivo.
+ */
+export async function buscarEnApuntes(
+  apuntes: Apunte[],
+  consulta: string,
+): Promise<Map<string, CoincidenciaApunte>> {
+  const q = consulta.trim().toLowerCase();
+  const resultado = new Map<string, CoincidenciaApunte>();
+  if (q.length < 3) return resultado;
+
+  for (const a of apuntes) {
+    if (!a.archivoTexto) continue;
+    const guardado = cache.get(a.archivoTexto);
+    let texto = guardado;
+    if (texto === undefined) {
+      try {
+        texto = (await exists(a.archivoTexto)) ? await readTextFile(a.archivoTexto) : "";
+      } catch {
+        texto = "";
+      }
+      cache.set(a.archivoTexto, texto);
+    }
+    if (!texto) continue;
+
+    const { cantidad, fragmentos } = contarEnTexto(texto, q, 3);
+    if (cantidad === 0) continue;
+    resultado.set(a.id, { apunteId: a.id, cantidad, fragmentos });
   }
 
   return resultado;

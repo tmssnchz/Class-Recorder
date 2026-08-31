@@ -182,3 +182,85 @@ pub async fn transcribir_api(
         .await
         .map_err(|e| format!("No se pudo leer la respuesta de la API: {e}"))
 }
+
+
+/// Manda una hoja escaneada a un endpoint compatible con `chat/completions`
+/// que acepte imágenes (Groq, OpenAI, Gemini por su capa compatible) y
+/// devuelve el texto reconocido.
+///
+/// Se reusan los mismos perfiles y las mismas claves cifradas que la
+/// transcripción de audio: son las mismas cuentas y no tiene sentido que el
+/// usuario las cargue dos veces.
+#[tauri::command]
+pub async fn reconocer_apunte_api(
+    url: String,
+    clave_cifrada: String,
+    imagen: String,
+    modelo: String,
+    prompt: String,
+) -> Result<String, String> {
+    let clave = descifrar_dpapi(&de_hex(&clave_cifrada)?)?;
+    let clave = String::from_utf8(clave).map_err(|_| "clave cifrada corrupta".to_string())?;
+
+    let bytes = tokio::fs::read(&imagen)
+        .await
+        .map_err(|e| format!("No se pudo leer la imagen a mandar: {e}"))?;
+    let mime = if imagen.to_lowercase().ends_with(".png") {
+        "image/png"
+    } else {
+        "image/jpeg"
+    };
+    let data_uri = format!("data:{mime};base64,{}", crate::escaneo::base64(&bytes));
+
+    let cuerpo = serde_json::json!({
+        "model": modelo,
+        "temperature": 0.1,
+        "messages": [{
+            "role": "user",
+            "content": [
+                { "type": "text", "text": prompt },
+                { "type": "image_url", "image_url": { "url": data_uri } }
+            ]
+        }]
+    });
+
+    // Más generoso que el de audio: una hoja densa puede tardar bastante en un
+    // modelo grande del lado del proveedor.
+    let cliente = reqwest::Client::builder()
+        .timeout(Duration::from_secs(300))
+        .build()
+        .map_err(|e| format!("No se pudo preparar el cliente HTTP: {e}"))?;
+
+    let respuesta = cliente
+        .post(&url)
+        .bearer_auth(&clave)
+        .json(&cuerpo)
+        .send()
+        .await
+        .map_err(|e| format!("No se pudo conectar con la API: {e}"))?;
+
+    let estado = respuesta.status();
+    if estado.as_u16() == 401 {
+        return Err("La clave de API no es válida o no tiene permisos.".to_string());
+    }
+    if estado.as_u16() == 429 {
+        return Err(
+            "Límite de solicitudes de la API alcanzado. Espera unos minutos e intenta de nuevo."
+                .to_string(),
+        );
+    }
+    if !estado.is_success() {
+        let cuerpo = respuesta.text().await.unwrap_or_default();
+        return Err(format!("La API respondió {estado}: {cuerpo}"));
+    }
+
+    let json: serde_json::Value = respuesta
+        .json()
+        .await
+        .map_err(|e| format!("No se pudo leer la respuesta de la API: {e}"))?;
+
+    json["choices"][0]["message"]["content"]
+        .as_str()
+        .map(|t| t.trim().to_string())
+        .ok_or_else(|| "La API respondió sin texto reconocido.".to_string())
+}

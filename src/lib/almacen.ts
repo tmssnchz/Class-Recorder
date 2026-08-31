@@ -110,6 +110,7 @@ export async function cargarDatos(): Promise<BaseDatos> {
     })),
     // Campos agregados después: un datos.json anterior no los trae.
     materiales: datos.materiales ?? [],
+    apuntes: datos.apuntes ?? [],
     horario: datos.horario ?? [],
   };
 }
@@ -140,6 +141,11 @@ export async function cargarConfig(): Promise<Config> {
     apiTranscripcion: {
       ...base.apiTranscripcion,
       ...(guardada.apiTranscripcion ?? {}),
+    },
+    apuntes: {
+      ...base.apuntes,
+      ...(guardada.apuntes ?? {}),
+      plantilla: { ...base.apuntes.plantilla, ...(guardada.apuntes?.plantilla ?? {}) },
     },
     // Una config vieja trae la plantilla vacía: se rellena con la de fábrica.
     plantillaPromptHorario:

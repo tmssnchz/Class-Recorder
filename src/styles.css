@@ -243,6 +243,27 @@ code {
   flex: 1;
 }
 
+/*
+  `.item-texto` se usa tanto en un div como en un button. Sin este reset, el
+  button se queda con el fondo y el borde por defecto del navegador y la fila
+  aparece como un rectángulo blanco con texto oscuro en medio del tema oscuro.
+*/
+button.item-texto {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.item-texto:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .item-texto strong {
   font-weight: 600;
   overflow: hidden;
@@ -257,7 +278,22 @@ code {
 .item-acciones {
   display: flex;
   gap: 2px;
+  /* Escondidos hasta pasar el mouse por la fila: una lista larga con un botón
+     de borrar en cada línea es puro ruido visual. */
   opacity: 0;
+}
+
+/*
+  Grupo de botones que NO vive dentro de una fila de lista: cabeceras de panel,
+  barras de acciones sueltas. Es una clase aparte y no `.item-acciones` porque
+  esa se esconde con opacity y solo reaparece al pasar el mouse por su `.item`
+  contenedor — fuera de una lista quedaría invisible para siempre.
+*/
+.acciones-fila {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .item:hover .item-acciones,
@@ -1873,4 +1909,365 @@ mark {
 .recorte-procesando {
   margin: 12px 0 0;
   text-align: center;
+}
+
+/* -------------------------------------------------------- apuntes escaneados */
+
+.cola-fotos {
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  padding: 16px;
+  margin-bottom: 18px;
+  box-shadow: var(--sombra);
+}
+
+/* Rejilla que se acomoda sola: una tanda puede ser de 2 fotos o de 40. */
+.miniaturas {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.miniatura {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background: var(--superficie-2);
+  border: 2px solid transparent;
+  border-radius: var(--radio);
+  cursor: pointer;
+  text-align: center;
+  color: var(--texto-sutil);
+  font-size: 11px;
+}
+
+.miniatura:hover {
+  border-color: var(--borde);
+}
+
+.miniatura.elegida {
+  border-color: var(--primario);
+  background: var(--primario-suave);
+}
+
+.miniatura img {
+  width: 100%;
+  height: 130px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--superficie);
+}
+
+.marca-elegida {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--primario);
+  color: #fff;
+}
+
+/* ------------------------------------------------------ ajuste de esquinas */
+
+.ajustar-esquinas {
+  position: relative;
+  width: 100%;
+  margin: 12px 0;
+  line-height: 0;
+  user-select: none;
+  touch-action: none;
+}
+
+.ajustar-esquinas img {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radio);
+}
+
+.capa-esquinas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.capa-esquinas polygon {
+  fill: rgba(47, 111, 237, 0.16);
+  stroke: var(--primario);
+  stroke-width: 2;
+}
+
+/* El tirador se centra sobre el punto y tiene un área de toque mayor que su
+   parte visible: arrastrar una esquina con precisión de píxel es imposible. */
+.tirador {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  padding: 0;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--primario);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  cursor: grab;
+}
+
+.tirador:focus-visible {
+  outline: 2px solid var(--texto);
+  outline-offset: 2px;
+}
+
+.tirador.activo {
+  cursor: grabbing;
+  transform: scale(1.15);
+}
+
+/* ---------------------------------------------------------------- ráfaga */
+
+.rafaga-cabecera {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.rafaga-cabecera strong {
+  font-size: 16px;
+}
+
+.rafaga-cabecera .btn {
+  margin-left: auto;
+}
+
+.rafaga-controles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.rafaga-controles .btn-primario {
+  margin-left: auto;
+}
+
+/* ----------------------------------------------------------- editor apunte */
+
+.editor-cuerpo {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+/* En pantallas angostas el texto va debajo de la hoja en vez de al lado. */
+@media (max-width: 1100px) {
+  .editor-cuerpo {
+    grid-template-columns: 110px minmax(0, 1fr);
+  }
+  .texto-reconocido {
+    grid-column: 1 / -1;
+  }
+}
+
+.tira-paginas {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.tira-paginas .miniatura img {
+  height: 90px;
+  object-fit: contain;
+}
+
+.hoja img {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: #fff;
+}
+
+.hoja .acciones-fila {
+  margin-top: 8px;
+}
+
+.texto-reconocido {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.area-texto {
+  min-height: 45vh;
+  padding: 12px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--texto);
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  resize: vertical;
+}
+
+.area-texto:focus {
+  outline: 2px solid var(--primario);
+  outline-offset: -1px;
+}
+
+.portada-apunte {
+  width: 44px;
+  height: 58px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--borde);
+  background: #fff;
+  flex: none;
+}
+
+/* --------------------------------------------------------- dúplex manual */
+
+.pasos-duplex ol {
+  margin: 10px 0 0;
+  padding-left: 20px;
+  line-height: 1.9;
+}
+
+.pasos-duplex li {
+  margin-bottom: 6px;
+}
+
+/* --------------------------------------------- análisis de la foto en curso */
+
+/*
+  Mientras Rust busca los marcadores se muestra la propia foto con una línea de
+  barrido encima. Decir "algo está pasando" no alcanza: con una foto de 12 MP la
+  espera son varios segundos y conviene que se vea qué hoja se está mirando.
+*/
+.analizando {
+  position: relative;
+  overflow: hidden;
+  max-width: 520px;
+  margin: 12px 0;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  line-height: 0;
+}
+
+.analizando img {
+  width: 100%;
+  height: auto;
+  filter: grayscale(0.4) brightness(0.7);
+}
+
+.barrido {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 28%;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--primario) 45%, transparent),
+    transparent
+  );
+  border-bottom: 2px solid var(--primario);
+  animation: barrer 1.6s ease-in-out infinite;
+}
+
+@keyframes barrer {
+  0% {
+    top: -28%;
+  }
+  100% {
+    top: 100%;
+  }
+}
+
+/* Barra sin porcentaje: no hay forma honesta de estimar el avance del análisis,
+   así que se muestra actividad y no un número inventado. */
+.progreso-indeterminado {
+  max-width: 520px;
+  overflow: hidden;
+}
+
+.progreso-indeterminado .progreso-valor {
+  width: 35%;
+  animation: recorrer 1.3s ease-in-out infinite;
+}
+
+@keyframes recorrer {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(330%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .barrido,
+  .progreso-indeterminado .progreso-valor {
+    animation: none;
+  }
+  .progreso-indeterminado .progreso-valor {
+    width: 100%;
+  }
+}
+
+/* ------------------------------------------------ pestañas de configuración */
+
+.pestanas-config {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 18px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--borde);
+}
+
+.pestana {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  font: inherit;
+  color: var(--texto-sutil);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radio);
+  cursor: pointer;
+}
+
+.pestana:hover {
+  color: var(--texto);
+  background: var(--superficie-2);
+}
+
+.pestana.activa {
+  color: var(--primario);
+  background: var(--primario-suave);
+  border-color: var(--primario);
+  font-weight: 600;
+}
+
+.cola-reconocimiento .item {
+  cursor: default;
+  gap: 12px;
+}
+
+.cola-reconocimiento .progreso {
+  max-width: 180px;
+  flex: none;
 }

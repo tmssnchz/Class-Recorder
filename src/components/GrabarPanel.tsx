@@ -7,7 +7,10 @@ import { formatearBytes, formatearDuracion } from "../lib/format";
 import { consultarEspacio, escribirMetaGrabacion, type EspacioDisco } from "../lib/grabaciones";
 import { bloqueEn } from "../lib/horario";
 import { SIN_CLASE, SIN_UNIDAD, type Grabacion } from "../types";
-import { SincronizarCelular } from "./SincronizarCelular";
+import {
+  SincronizarCelular,
+  type ModoImportacion,
+} from "./SincronizarCelular";
 import { Icono } from "./ui/Icono";
 import { Medidor } from "./ui/Medidor";
 import { ModalConfirmacion } from "./ui/ModalConfirmacion";
@@ -28,7 +31,8 @@ export function GrabarPanel() {
   const [creandoUnidad, setCreandoUnidad] = useState(false);
   const [nombreUnidadNueva, setNombreUnidadNueva] = useState("");
   const [errorCreacion, setErrorCreacion] = useState<string | null>(null);
-  const [sincronizando, setSincronizando] = useState(false);
+  // null = ventana cerrada; el valor dice con qué entrada se abrió.
+  const [sincronizando, setSincronizando] = useState<ModoImportacion | null>(null);
 
   const clase = datos.clases.find((c) => c.id === g.seleccion.claseId) ?? null;
   const grabando = g.fase === "grabando";
@@ -101,15 +105,29 @@ export function GrabarPanel() {
             se pierde lo grabado.
           </p>
         </div>
-        {config.carpetaInbox && !activo && (
-          <button className="btn" onClick={() => setSincronizando(true)}>
-            <Icono nombre="celular" tamano={16} /> Sincronizar desde el celular
-          </button>
+        {/* Dos entradas separadas a propósito: revisar la carpeta de Drive y
+            elegir archivos del disco son dos intenciones distintas, y meterlas
+            en un solo botón obliga a adivinar cuál quería el usuario. */}
+        {!activo && (
+          <div className="acciones-fila">
+            {/* Siempre visible, también sin carpeta configurada: esconder la
+                opción deja al usuario sin forma de descubrir que existe. Si no
+                hay carpeta, la ventana dice dónde configurarla. */}
+            <button className="btn" onClick={() => setSincronizando("carpeta")}>
+              <Icono nombre="celular" tamano={16} /> Sincronizar desde el celular
+            </button>
+            <button className="btn" onClick={() => setSincronizando("archivos")}>
+              <Icono nombre="carpeta" tamano={16} /> Importar desde archivos
+            </button>
+          </div>
         )}
       </header>
 
       {sincronizando && (
-        <SincronizarCelular onCerrar={() => setSincronizando(false)} />
+        <SincronizarCelular
+          modo={sincronizando}
+          onCerrar={() => setSincronizando(null)}
+        />
       )}
 
       {g.error && (

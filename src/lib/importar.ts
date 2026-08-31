@@ -8,7 +8,8 @@
  * misma metadata al lado del audio.
  */
 import { invoke } from "@tauri-apps/api/core";
-import { exists, remove } from "@tauri-apps/plugin-fs";
+import { open } from "@tauri-apps/plugin-dialog";
+import { exists, remove, stat } from "@tauri-apps/plugin-fs";
 
 import { convertirAudio, duracionDe } from "./audio";
 import {
@@ -44,8 +45,89 @@ export const prepararInbox = (raizDrive: string) =>
 export const escanearInbox = (carpeta: string) =>
   invoke<ArchivoInbox[]>("escanear_inbox", { carpeta });
 
+/**
+ * Lo mismo pero para las fotos de apuntes. Comparten carpeta con los audios y
+ * se separan por extensión, así el usuario configura una sola carpeta
+ * sincronizada y no hay forma de que una foto caiga en la cola de audios.
+ */
+export const escanearInboxFotos = (carpeta: string) =>
+  invoke<ArchivoInbox[]>("escanear_inbox_fotos", { carpeta });
+
 export const archivarImportado = (ruta: string, carpetaInbox: string) =>
   invoke<string>("archivar_importado", { ruta, carpetaInbox });
+
+/**
+ * true si `ruta` está dentro del Inbox de Drive.
+ *
+ * Lo que se elige a mano desde el disco no se archiva: mover el archivo de un
+ * usuario a una subcarpeta que él no creó sería una sorpresa desagradable. Solo
+ * se archiva lo que llegó por la carpeta sincronizada, que es donde archivar
+ * sirve para no reprocesarlo.
+ */
+export function vieneDelInbox(ruta: string, carpetaInbox: string | null): boolean {
+  if (!carpetaInbox) return false;
+  const normal = (r: string) =>
+    r.replace(/\//g, "\\").toLowerCase().replace(/\\+$/, "");
+  return normal(ruta).startsWith(normal(carpetaInbox) + "\\");
+}
+
+export const EXTENSIONES_AUDIO_IMPORT = [
+  "m4a", "mp3", "wav", "aac", "ogg", "opus", "3gp", "amr", "flac", "webm",
+];
+
+export const EXTENSIONES_FOTO_IMPORT = ["jpg", "jpeg", "png", "heic", "webp"];
+
+/**
+ * Abre el diálogo del sistema y devuelve lo elegido con la misma forma que
+ * `escanearInbox`, para que el resto del flujo no tenga que saber de dónde
+ * salió cada archivo.
+ */
+export async function elegirArchivos(
+  tipo: "audio" | "foto",
+): Promise<ArchivoInbox[]> {
+  const esAudio = tipo === "audio";
+  const elegidos = await open({
+    multiple: true,
+    filters: [
+      {
+        name: esAudio ? "Audio" : "Fotos",
+        extensions: esAudio ? EXTENSIONES_AUDIO_IMPORT : EXTENSIONES_FOTO_IMPORT,
+      },
+    ],
+  });
+  if (!elegidos) return [];
+
+  const rutas = Array.isArray(elegidos) ? elegidos : [elegidos];
+  const archivos: ArchivoInbox[] = [];
+
+  for (const ruta of rutas) {
+    let bytes = 0;
+    let llegadaMs = Date.now();
+    try {
+      const info = await stat(ruta);
+      bytes = info.size;
+      // La fecha de modificación es la mejor señal de cuándo se grabó o se
+      // sacó la foto, igual que en el escaneo del Inbox.
+      llegadaMs = info.mtime?.getTime() ?? llegadaMs;
+    } catch {
+      // Sin metadata igual se puede importar: el tamaño solo se usa para mostrar.
+    }
+    archivos.push({
+      nombre: nombreDe(ruta),
+      ruta,
+      bytes,
+      llegadaMs,
+      // Un archivo del disco local nunca está a medio bajar.
+      estable: true,
+    });
+  }
+  return archivos;
+}
+
+function nombreDe(ruta: string): string {
+  const partes = ruta.split(/[\\/]/);
+  return partes[partes.length - 1] ?? ruta;
+}
 
 export interface DestinoImportacion {
   claseId: string | null;

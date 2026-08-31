@@ -303,3 +303,89 @@ pub async fn instalar_whisper(
     avisar(&app, &tarea, 0, 0, "listo");
     Ok(ruta_cli)
 }
+
+/// Archivos del zip de llama.cpp que hacen falta para el reconocimiento de
+/// apuntes. El paquete trae además el servidor, benchmarks y varios CLI viejos
+/// por modelo, que no se usan.
+fn hace_falta_llama(nombre: &str) -> bool {
+    let base = nombre.rsplit('/').next().unwrap_or(nombre);
+    matches!(
+        base,
+        "llama-mtmd-cli.exe"
+            | "mtmd.dll"
+            | "llama.dll"
+            | "llama-common.dll"
+            | "ggml.dll"
+            | "ggml-base.dll"
+            | "libomp.dll"
+    // Variantes de CPU: ggml elige en tiempo de ejecución la mejor para el
+    // procesador de la máquina, igual que en whisper.cpp.
+    ) || base.starts_with("ggml-cpu-")
+}
+
+/// Descarga el zip de llama.cpp y deja `llama-mtmd-cli.exe` con sus DLL en
+/// `carpeta`. Devuelve la ruta del ejecutable.
+#[tauri::command]
+pub async fn instalar_llamacpp(
+    app: AppHandle,
+    url: String,
+    carpeta: String,
+    tarea: String,
+) -> Result<String, String> {
+    let carpeta = PathBuf::from(carpeta);
+    let zip = carpeta.join("llama-bin.zip");
+
+    bajar_a_disco(&app, &url, &zip, &tarea).await?;
+    avisar(&app, &tarea, 0, 0, "extrayendo");
+
+    let destino = carpeta.clone();
+    let zip_para_hilo = zip.clone();
+
+    let ruta_cli = tokio::task::spawn_blocking(move || -> Result<String, String> {
+        let archivo = std::fs::File::open(&zip_para_hilo)
+            .map_err(|e| format!("No se pudo abrir el zip: {e}"))?;
+        let mut paquete =
+            zip::ZipArchive::new(archivo).map_err(|e| format!("El zip está dañado: {e}"))?;
+
+        let mut cli = String::new();
+        for i in 0..paquete.len() {
+            let mut entrada = paquete
+                .by_index(i)
+                .map_err(|e| format!("No se pudo leer el zip: {e}"))?;
+            if entrada.is_dir() {
+                continue;
+            }
+            let nombre = entrada.name().to_string();
+            if !hace_falta_llama(&nombre) {
+                continue;
+            }
+            let solo_nombre = nombre.rsplit('/').next().unwrap_or(&nombre).to_string();
+            let salida = destino.join(&solo_nombre);
+
+            let mut datos = Vec::with_capacity(entrada.size() as usize);
+            entrada
+                .read_to_end(&mut datos)
+                .map_err(|e| format!("No se pudo extraer {solo_nombre}: {e}"))?;
+            std::fs::write(&salida, &datos)
+                .map_err(|e| format!("No se pudo escribir {solo_nombre}: {e}"))?;
+
+            if solo_nombre == "llama-mtmd-cli.exe" {
+                cli = salida.to_string_lossy().to_string();
+            }
+        }
+
+        if cli.is_empty() {
+            return Err(
+                "El paquete descargado no contiene llama-mtmd-cli.exe. ¿Cambió el formato del release?"
+                    .to_string(),
+            );
+        }
+        Ok(cli)
+    })
+    .await
+    .map_err(|e| format!("Falló la extracción: {e}"))??;
+
+    let _ = tokio::fs::remove_file(&zip).await;
+    avisar(&app, &tarea, 0, 0, "listo");
+    Ok(ruta_cli)
+}

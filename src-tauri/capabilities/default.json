@@ -9,8 +9,11 @@
     "core:window:allow-destroy",
     "opener:default",
     "opener:allow-reveal-item-in-dir",
-    "opener:allow-open-path",
     "opener:allow-open-url",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "**" }, { "path": "**/*" }]
+    },
     "dialog:default",
     "dialog:allow-save",
     "dialog:allow-open",
