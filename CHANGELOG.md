@@ -4,6 +4,28 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Este proyecto todavía no sigue versionado semántico estricto (está en `0.x`,
 así que cualquier versión puede traer cambios incompatibles).
 
+## [0.5.0] - 2026-09-02
+
+### Agregado
+
+- **Transcripción en paralelo a la grabación** (Configuración › Transcripción ›
+  "Transcribir mientras se graba"), apagada por defecto. Con el interruptor
+  activado, el motor local va transcribiendo la clase en tramos de dos minutos
+  a medida que se graban, en vez de esperar a que termine: al detener queda la
+  cola de los últimos minutos y la transcripción está lista casi enseguida.
+  whisper necesita un archivo cerrado y el `.webm.part` sigue creciendo, así
+  que cada tramo se extrae con ffmpeg decodificando desde el principio —más
+  lento que un seek, pero el archivo en curso todavía no tiene el índice que
+  Matroska escribe al cerrar y un seek rápido correría los tiempos—.
+- El costo es CPU durante toda la clase, por eso es opcional. Usa solo el motor
+  local: las APIs de transcripción siguen trabajando después de grabar.
+
+### Corregido
+
+- Nada de esto puede costar audio: si la transcripción en paralelo falla (falta
+  el modelo, el archivo está ocupado, se cierra la app), la grabación sigue
+  intacta y la clase pasa sola a la cola de transcripción de siempre.
+
 ## [0.4.0] - 2026-08-31
 
 ### Agregado

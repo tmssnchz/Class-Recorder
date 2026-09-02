@@ -8,8 +8,8 @@
 import { exists, remove, writeTextFile } from "@tauri-apps/plugin-fs";
 import { Command } from "@tauri-apps/plugin-shell";
 
-import { unir } from "./paths";
-import type { FormatoAudio } from "../types";
+import { unir } from "./paths.ts";
+import type { FormatoAudio } from "../types.ts";
 
 const SIDECAR = "binaries/ffmpeg";
 
@@ -306,18 +306,34 @@ export function generarSilencio(salida: string): Promise<void> {
 /**
  * WAV PCM 16 bits, 16 kHz, mono: el único formato de entrada que acepta
  * whisper.cpp. Se genera en una carpeta temporal justo antes de transcribir.
+ *
+ * `ventana` recorta un tramo, para la transcripción que corre en paralelo a la
+ * grabación. El `-ss` va **después** del `-i` a propósito: el archivo en curso
+ * (`.webm.part`) todavía no tiene el índice de cues que Matroska escribe al
+ * cerrar, así que un seek rápido daría un tramo corrido y los tiempos de la
+ * transcripción dejarían de coincidir con el audio. Decodificar y descartar es
+ * más lento pero cae siempre en el segundo exacto.
  */
 export function extraerWav16k(
   entrada: string,
   salida: string,
   opciones: OpcionesConversion = {},
+  ventana?: VentanaAudio,
 ): Promise<void> {
+  // ponytail: redecodifica desde el principio en cada ventana (~30 s de CPU
+  // por ventana a las 2 h de clase). Si molesta, un `-ss` grueso antes del
+  // `-i` más uno fino después lo arregla, pero hay que validarlo contra un
+  // .part sin cues antes de confiarle los tiempos.
+  const recorte = ventana
+    ? ["-ss", String(ventana.desdeSeg), "-t", String(ventana.duracionSeg)]
+    : [];
   return ejecutar(
     [
       "-y",
       "-hide_banner",
       "-i",
       entrada,
+      ...recorte,
       "-vn",
       "-ac",
       "1",

@@ -37,6 +37,12 @@ import {
   type MetaParcial,
 } from "../lib/grabaciones";
 import { unir } from "../lib/paths";
+import type { ResultadoTranscripcion } from "../lib/transcripcion";
+import {
+  iniciarTranscripcionParalela,
+  type EstadoParalela,
+  type TranscripcionParalela,
+} from "../lib/transcripcionParalela";
 import {
   SIN_CLASE,
   SIN_UNIDAD,
@@ -100,6 +106,20 @@ interface Grabador {
   moviendoDestino: boolean;
   /** Segundos que lleva sin detectarse sonido, o null si se está captando. */
   segundosEnSilencio: number | null;
+  /**
+   * Avance de la transcripción que corre junto a la grabación, o null si está
+   * apagada en Configuración. Sigue vivo un rato después de detener: la cola
+   * de la clase se transcribe con la grabación ya guardada.
+   */
+  paralela: EstadoParalela | null;
+  /**
+   * Grabación que quedó guardada sin transcripción porque la paralela falló o
+   * no estaba activa. La consume `ProveedorTranscripciones`, que la manda a la
+   * cola de siempre; el grabador no puede encolarla solo porque vive por
+   * encima de esa cola.
+   */
+  pendienteTranscripcion: Grabacion | null;
+  consumirPendienteTranscripcion(): void;
 
   elegirClase(claseId: string | null): void;
   elegirUnidad(unidadId: string | null): void;
@@ -149,6 +169,9 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
   });
   const [moviendo, setMoviendo] = useState(false);
   const [segundosEnSilencio, setSegundosEnSilencio] = useState<number | null>(null);
+  const [paralela, setParalela] = useState<EstadoParalela | null>(null);
+  const [pendienteTranscripcion, setPendienteTranscripcion] =
+    useState<Grabacion | null>(null);
   const seleccionRef = useRef(seleccion);
   /** Última vez (performance.now) que el micrófono captó algo por encima del umbral. */
   const ultimoSonidoRef = useRef(0);
@@ -168,6 +191,7 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
   // la primera termine de mover los archivos antes de leer el destino actual.
   const reasignacionRef = useRef<Promise<void>>(Promise.resolve());
   const metaRef = useRef<MetaParcial | null>(null);
+  const paralelaRef = useRef<TranscripcionParalela | null>(null);
   const marcasRef = useRef<Marca[]>([]);
   const faseRef = useRef<FaseGrabacion>("inactivo");
   const bytesRef = useRef(0);
@@ -231,6 +255,9 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
         const cfg = configRef.current;
         setMoviendo(true);
         try {
+          // Igual que con las escrituras: si ffmpeg está leyendo el .part para
+          // una ventana de la transcripción paralela, moverlo falla en Windows.
+          await paralelaRef.current?.suspender();
           // Se encola detrás de las escrituras de audio pendientes: el rename
           // no puede pisar un chunk que todavía se está apendeando.
           const raiz = raizDeClase(datosRef.current.grabaciones, claseId, cfg.carpetaRaiz);
@@ -261,6 +288,7 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
             }`,
           );
         } finally {
+          paralelaRef.current?.reanudar();
           setMoviendo(false);
         }
       });
@@ -561,6 +589,33 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
         ultimoSonidoRef.current = performance.now();
         setSegundosEnSilencio(null);
 
+        // 6. Transcripción en paralelo, si está activada. Va después de que la
+        // grabación ya arrancó: nada de esto puede impedir que se grabe.
+        if (cfg.transcripcionParalela) {
+          setParalela({
+            porcentaje: 0,
+            transcritoSeg: 0,
+            error: null,
+            finalizando: false,
+          });
+          // La transcripción de la clase anterior puede seguir cerrando su
+          // cola cuando ya arrancó la siguiente: solo el handle vigente puede
+          // escribir en la barra de progreso, o una clase pisaría a la otra.
+          let propio: TranscripcionParalela | null = null;
+          propio = iniciarTranscripcionParalela({
+            rutaActual: () => rutaEscrituraRef.current,
+            grabadoSeg: () => transcurridoMs() / 1000,
+            config: () => configRef.current,
+            tareaBase: meta.id,
+            onEstado: (e) => {
+              if (paralelaRef.current === propio) setParalela(e);
+            },
+          });
+          paralelaRef.current = propio;
+        } else {
+          setParalela(null);
+        }
+
         intervaloRef.current = window.setInterval(() => {
           setSegundos(transcurridoMs() / 1000);
           setBytesEscritos(bytesRef.current);
@@ -642,7 +697,20 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
     const rec = recorderRef.current;
     const d = destinoRef.current;
     const meta = metaRef.current;
-    if (!rec || !d || !meta) return null;
+    if (!rec || !d || !meta) {
+      // Sin destino no hay nada que guardar; dejar viva la paralela sería
+      // dejar un whisper corriendo contra un archivo que ya no existe.
+      void paralelaRef.current?.cancelar();
+      paralelaRef.current = null;
+      setParalela(null);
+      return null;
+    }
+
+    const paralela = paralelaRef.current;
+    // Queda en true cuando la transcripción paralela ya está trabajando sobre
+    // la grabación guardada: a partir de ahí se apaga sola y no hay que
+    // cancelarla en el `finally`.
+    let entregada = false;
 
     if (faseRef.current === "grabando") {
       acumuladoMsRef.current += performance.now() - inicioTramoRef.current;
@@ -664,6 +732,8 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
       await colaRef.current;
       limpiarRecursos();
 
+      // Nadie puede tener abierto el .part cuando se renombra.
+      await paralela?.suspender();
       await rename(d.rutaParcial, d.rutaWebm);
       if (await exists(d.rutaMetaParcial)) await remove(d.rutaMetaParcial);
 
@@ -691,8 +761,48 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
       await agregarGrabacion(grabacion);
       await escribirMetaGrabacion(grabacion);
 
-      // La conversión sigue por su cuenta: la app queda libre enseguida.
-      void convertir(grabacion, configRef.current.formatoAudio);
+      if (paralela) {
+        entregada = true;
+        // La cola de la clase y la conversión van en serie, no en paralelo:
+        // convertir borra el .webm al terminar y es justo el archivo del que
+        // sale esa última ventana.
+        void (async () => {
+          let resultado: ResultadoTranscripcion | null = null;
+          try {
+            resultado = await paralela.finalizar(grabacion);
+          } catch (e) {
+            console.error("La transcripción en paralelo no se pudo cerrar", e);
+          }
+          if (paralelaRef.current === paralela) setParalela(null);
+
+          if (!resultado) {
+            // Se rindió a mitad de camino: la clase se transcribe después,
+            // entera y por la cola de siempre. El audio no se tocó.
+            setPendienteTranscripcion(grabacion);
+            await convertir(grabacion, configRef.current.formatoAudio);
+            return;
+          }
+
+          // `finalizar` ya dejó el .txt y el .segmentos.json en la carpeta:
+          // acá solo se anota en el índice y en el .meta.json.
+          const { transcripcion } = resultado;
+          const conTexto = { ...grabacion, transcripcion };
+          await actualizarGrabacion(grabacion.id, { transcripcion });
+          await escribirMetaGrabacion(conTexto);
+          // Se le pasa la versión con transcripción: `convertir` reescribe el
+          // .meta.json a partir del objeto que recibe y borraría el dato.
+          await convertir(conTexto, configRef.current.formatoAudio);
+        })().finally(() => {
+          // Recién acá deja de haber a quién cancelar: hasta ese momento
+          // `detenerYCerrar` tiene que poder matar el whisper de la cola.
+          if (paralelaRef.current === paralela) paralelaRef.current = null;
+        });
+      } else {
+        // La conversión sigue por su cuenta: la app queda libre enseguida.
+        // Sin transcripción paralela nada se encola solo: transcribir sigue
+        // siendo una decisión del usuario desde la biblioteca.
+        void convertir(grabacion, configRef.current.formatoAudio);
+      }
       return grabacion;
     } catch (e) {
       setError(
@@ -702,6 +812,11 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
       );
       return null;
     } finally {
+      if (!entregada && paralela) {
+        void paralela.cancelar();
+        setParalela(null);
+        paralelaRef.current = null;
+      }
       limpiarRecursos();
       destinoRef.current = null;
       rutaEscrituraRef.current = null;
@@ -715,7 +830,13 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
       acumuladoMsRef.current = 0;
       ponerFase("inactivo");
     }
-  }, [agregarGrabacion, convertir, limpiarRecursos, ponerFase]);
+  }, [
+    actualizarGrabacion,
+    agregarGrabacion,
+    convertir,
+    limpiarRecursos,
+    ponerFase,
+  ]);
 
   // ------------------------------------------------------------------ marcas
 
@@ -772,6 +893,12 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
 
   const detenerYCerrar = useCallback(async () => {
     await detener();
+    // La cola de la transcripción paralela sigue corriendo en segundo plano y
+    // no va a alcanzar a terminar: sin esto, whisper-cli queda huérfano
+    // comiendo CPU después de que la ventana ya no está. La grabación quedó
+    // guardada igual y se puede transcribir desde la biblioteca.
+    await paralelaRef.current?.cancelar();
+    paralelaRef.current = null;
     setCierrePendiente(false);
     await getCurrentWindow().destroy();
   }, [detener]);
@@ -831,6 +958,11 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
 
   useEffect(() => limpiarRecursos, [limpiarRecursos]);
 
+  const consumirPendienteTranscripcion = useCallback(
+    () => setPendienteTranscripcion(null),
+    [],
+  );
+
   const valor = useMemo<Grabador>(
     () => ({
       fase,
@@ -846,6 +978,9 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
       seleccion,
       moviendoDestino: moviendo,
       segundosEnSilencio,
+      paralela,
+      pendienteTranscripcion,
+      consumirPendienteTranscripcion,
       elegirClase,
       elegirUnidad,
       iniciar,
@@ -879,6 +1014,9 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
       seleccion,
       moviendo,
       segundosEnSilencio,
+      paralela,
+      pendienteTranscripcion,
+      consumirPendienteTranscripcion,
       elegirClase,
       elegirUnidad,
       iniciar,

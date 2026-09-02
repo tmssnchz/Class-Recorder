@@ -1,13 +1,13 @@
 {
   "name": "class-recorder",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types src/lib/arbol.test.mjs && node --experimental-strip-types src/lib/materiales.test.mjs && node --experimental-strip-types src/lib/horario.test.mjs && node --experimental-strip-types src/lib/fechaAudio.test.mjs && node --experimental-strip-types src/lib/apuntes.test.mjs",
+    "test": "node --experimental-strip-types src/lib/arbol.test.mjs && node --experimental-strip-types src/lib/materiales.test.mjs && node --experimental-strip-types src/lib/horario.test.mjs && node --experimental-strip-types src/lib/fechaAudio.test.mjs && node --experimental-strip-types src/lib/apuntes.test.mjs && node --experimental-strip-types src/lib/transcripcionParalela.test.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

@@ -10,14 +10,14 @@
  */
 import { exists, mkdir, remove } from "@tauri-apps/plugin-fs";
 
-import { carpetaDeDatos } from "./almacen";
-import { unir } from "./paths";
+import { carpetaDeDatos } from "./almacen.ts";
+import { unir } from "./paths.ts";
 import type {
   IdModelo,
   IdModeloFaster,
   MotorTranscripcion,
   ProveedorApi,
-} from "../types";
+} from "../types.ts";
 
 const BASE_HF = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
 

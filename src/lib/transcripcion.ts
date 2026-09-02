@@ -8,8 +8,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { exists, mkdir, readTextFile, remove, writeTextFile } from "@tauri-apps/plugin-fs";
 
-import { carpetaDeDatos } from "./almacen";
-import { extraerWav16k } from "./audio";
+import { carpetaDeDatos } from "./almacen.ts";
+import { extraerWav16k, type VentanaAudio } from "./audio.ts";
 import {
   buscarModelo,
   buscarModeloFaster,
@@ -18,9 +18,15 @@ import {
   rutaBinario,
   rutaBinarioFaster,
   rutaModelo,
-} from "./modelos";
-import { unir } from "./paths";
-import type { Config, Grabacion, Segmento, Transcripcion } from "../types";
+} from "./modelos.ts";
+import { unir } from "./paths.ts";
+import type {
+  Config,
+  Grabacion,
+  MotorTranscripcion,
+  Segmento,
+  Transcripcion,
+} from "../types.ts";
 
 export type Etapa = "preparando" | "transcribiendo" | "guardando";
 
@@ -110,12 +116,26 @@ async function verificarInstalacion(config: Config): Promise<void> {
   }
 }
 
-export async function transcribirGrabacion(
-  grabacion: Grabacion,
+/**
+ * Corre el motor local sobre `audio` (entero, o solo el tramo `ventana`) y
+ * devuelve sus segmentos con los tiempos ya referidos al inicio del audio
+ * completo, no al del tramo.
+ *
+ * Es el paso caro y es lo único que comparten la transcripción normal y la que
+ * corre en paralelo a la grabación: la primera lo llama una vez con el archivo
+ * entero, la segunda lo llama por ventanas mientras la clase avanza.
+ *
+ * Un tramo puede salir vacío (silencio, o el profesor no habló en esos
+ * minutos): eso no es un error acá. Quien junta el resultado final decide si
+ * quedarse sin nada es un problema.
+ */
+export async function transcribirTramo(
+  audio: string,
   config: Config,
   tarea: string,
   onEtapa: (etapa: Etapa) => void,
-): Promise<ResultadoTranscripcion> {
+  ventana?: VentanaAudio,
+): Promise<Segmento[]> {
   const conFaster = config.motorTranscripcion === "faster-whisper";
   await verificarInstalacion(config);
 
@@ -125,11 +145,11 @@ export async function transcribirGrabacion(
   // Ambos motores dejan el resultado en "{tarea}.json": whisper.cpp porque se
   // lo pasamos como -of, faster-whisper porque nombra la salida según el audio.
   const jsonWhisper = `${baseSalida}.json`;
-  const comenzoEn = Date.now();
+  const desplazamientoMs = Math.round((ventana?.desdeSeg ?? 0) * 1000);
 
   try {
     onEtapa("preparando");
-    await extraerWav16k(grabacion.archivoAudio, wav);
+    await extraerWav16k(audio, wav, {}, ventana);
 
     onEtapa("transcribiendo");
     const hilos = config.hilosWhisper ?? (await invoke<number>("hilos_recomendados"));
@@ -161,46 +181,17 @@ export async function transcribirGrabacion(
       ? ((JSON.parse(bruto) as SalidaFaster).segments ?? []).map((s) => ({
           // start/end vienen en segundos: se pasan a milisegundos para que el
           // resto de la app trate igual a los dos motores.
-          desdeMs: Math.round((s.start ?? 0) * 1000),
-          hastaMs: Math.round((s.end ?? 0) * 1000),
+          desdeMs: Math.round((s.start ?? 0) * 1000) + desplazamientoMs,
+          hastaMs: Math.round((s.end ?? 0) * 1000) + desplazamientoMs,
           texto: (s.text ?? "").trim(),
         }))
       : ((JSON.parse(bruto) as SalidaWhisper).transcription ?? []).map((s) => ({
-          desdeMs: s.offsets?.from ?? 0,
-          hastaMs: s.offsets?.to ?? 0,
+          desdeMs: (s.offsets?.from ?? 0) + desplazamientoMs,
+          hastaMs: (s.offsets?.to ?? 0) + desplazamientoMs,
           texto: (s.text ?? "").trim(),
         }));
 
-    const utiles = segmentos.filter((s) => s.texto.length > 0);
-
-    if (utiles.length === 0) {
-      throw new Error(
-        "whisper no reconoció nada en el audio. Revisa que la grabación tenga voz audible.",
-      );
-    }
-
-    const texto = armarTexto(utiles);
-    const rutaTxt = unir(grabacion.carpeta, `${grabacion.titulo}.txt`);
-    const rutaSegmentos = unir(
-      grabacion.carpeta,
-      `${grabacion.titulo}.segmentos.json`,
-    );
-
-    await writeTextFile(rutaTxt, texto);
-    await writeTextFile(rutaSegmentos, JSON.stringify(utiles));
-
-    return {
-      transcripcion: {
-        archivo: rutaTxt,
-        archivoSegmentos: rutaSegmentos,
-        motor: conFaster ? "faster-whisper" : "whisper.cpp",
-        modelo: conFaster ? config.modeloFaster : config.modelo,
-        fechaISO: new Date().toISOString(),
-        palabras: contarPalabras(texto),
-        duracionProcesoSeg: (Date.now() - comenzoEn) / 1000,
-      },
-      segmentos: utiles,
-    };
+    return segmentos.filter((s) => s.texto.length > 0);
   } finally {
     // El WAV intermedio de una clase de 2 h pesa 220 MB: no puede quedar.
     for (const basura of [wav, jsonWhisper]) {
@@ -211,6 +202,81 @@ export async function transcribirGrabacion(
       }
     }
   }
+}
+
+/**
+ * Escribe el .txt legible y el .segmentos.json junto al audio, y arma la
+ * ficha `Transcripcion` que se guarda en el índice.
+ */
+export async function escribirTranscripcion(
+  grabacion: Grabacion,
+  segmentos: Segmento[],
+  motor: MotorTranscripcion,
+  modelo: string,
+  duracionProcesoSeg: number,
+): Promise<ResultadoTranscripcion> {
+  const texto = armarTexto(segmentos);
+  const rutaTxt = unir(grabacion.carpeta, `${grabacion.titulo}.txt`);
+  const rutaSegmentos = unir(
+    grabacion.carpeta,
+    `${grabacion.titulo}.segmentos.json`,
+  );
+
+  await writeTextFile(rutaTxt, texto);
+  await writeTextFile(rutaSegmentos, JSON.stringify(segmentos));
+
+  return {
+    transcripcion: {
+      archivo: rutaTxt,
+      archivoSegmentos: rutaSegmentos,
+      motor,
+      modelo,
+      fechaISO: new Date().toISOString(),
+      palabras: contarPalabras(texto),
+      duracionProcesoSeg,
+    },
+    segmentos,
+  };
+}
+
+/** Motor local en uso y con qué modelo, para dejarlo anotado en la ficha. */
+export function motorLocalDe(config: Config): {
+  motor: MotorTranscripcion;
+  modelo: string;
+} {
+  return config.motorTranscripcion === "faster-whisper"
+    ? { motor: "faster-whisper", modelo: config.modeloFaster }
+    : { motor: "whisper.cpp", modelo: config.modelo };
+}
+
+export async function transcribirGrabacion(
+  grabacion: Grabacion,
+  config: Config,
+  tarea: string,
+  onEtapa: (etapa: Etapa) => void,
+): Promise<ResultadoTranscripcion> {
+  const comenzoEn = Date.now();
+  const utiles = await transcribirTramo(
+    grabacion.archivoAudio,
+    config,
+    tarea,
+    onEtapa,
+  );
+
+  if (utiles.length === 0) {
+    throw new Error(
+      "whisper no reconoció nada en el audio. Revisa que la grabación tenga voz audible.",
+    );
+  }
+
+  const { motor, modelo } = motorLocalDe(config);
+  return escribirTranscripcion(
+    grabacion,
+    utiles,
+    motor,
+    modelo,
+    (Date.now() - comenzoEn) / 1000,
+  );
 }
 
 export async function leerSegmentos(t: Transcripcion): Promise<Segmento[]> {

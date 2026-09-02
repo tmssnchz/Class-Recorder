@@ -24,9 +24,9 @@ import {
   VERSION_BD,
   type BaseDatos,
   type Config,
-} from "../types";
-import { PLANTILLA_PROMPT_POR_DEFECTO } from "./horario";
-import { unir } from "./paths";
+} from "../types.ts";
+import { PLANTILLA_PROMPT_POR_DEFECTO } from "./horario.ts";
+import { unir } from "./paths.ts";
 
 let carpetaApp: string | null = null;
 

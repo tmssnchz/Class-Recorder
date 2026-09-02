@@ -1036,6 +1036,28 @@ export function ConfiguracionPanel() {
           </div>
         </div>
 
+        <label className="selector-fila">
+          <input
+            type="checkbox"
+            checked={config.transcripcionParalela}
+            onChange={(e) =>
+              void actualizarConfig({ transcripcionParalela: e.target.checked })
+            }
+          />
+          <span>
+            Transcribir mientras se graba
+            <small className="sutil">
+              {" "}
+              — el motor local va transcribiendo la clase en tramos de dos
+              minutos, así al detener queda casi lista. Usa CPU durante toda la
+              clase, y el ventilador se va a notar. Las APIs no participan: con
+              esto activado la clase se transcribe con {config.motorTranscripcion}.
+              Si falla en el camino, la grabación no se toca y la clase pasa a la
+              cola para transcribirse entera después.
+            </small>
+          </span>
+        </label>
+
         <div className="ajuste">
           <div className="ajuste-texto">
             <strong>Núcleos para whisper</strong>
