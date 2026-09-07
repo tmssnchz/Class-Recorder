@@ -4,6 +4,12 @@
  *
  * Es el patrón que uno espera al escanear un cuaderno entero: lo que se hace
  * cuarenta veces seguidas tiene que costar un click, no cinco.
+ *
+ * Una misma tanda puede repartirse en más de un apunte ("bloques"): sirve para
+ * digitalizar un cuaderno viejo con hojas de varios ramos mezcladas, sin
+ * obligar a hacer una tanda de una sola foto por cada ramo. Cada foto elige su
+ * destino (clase/unidad) y se junta con el último bloque que tenga ese mismo
+ * destino; "Nuevo apunte" fuerza uno nuevo aunque el destino se repita.
  */
 import { useCallback, useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -19,8 +25,15 @@ import {
   type Esquina,
 } from "../../lib/escaneo";
 import { formatearBytes } from "../../lib/format";
+import { nombreArchivo } from "../../lib/paths";
 import { PAPELES } from "../../lib/plantilla";
-import { SIN_CLASE, SIN_UNIDAD, type Apunte, type GeometriaPlantilla, type PaginaApunte } from "../../types";
+import {
+  SIN_CLASE,
+  SIN_UNIDAD,
+  type Apunte,
+  type GeometriaPlantilla,
+  type PaginaApunte,
+} from "../../types";
 import { Icono } from "../ui/Icono";
 import { AjustarEsquinas } from "./AjustarEsquinas";
 
@@ -29,11 +42,38 @@ interface Props {
   fotos: string[];
   claseId: string | null;
   unidadId: string | null;
-  /** Se llama con el apunte ya armado. Guardarlo es del que llama. */
-  onTerminar(apunte: Apunte, paginas: PaginaApunte[]): void;
+  /**
+   * Se llama con los apuntes ya armados — uno por cada bloque que haya
+   * juntado al menos una página. Guardarlos es del que llama.
+   */
+  onTerminar(resultados: { apunte: Apunte; paginas: PaginaApunte[] }[]): void;
   onCancelar(): void;
   /** Se llama por cada foto ya digitalizada, para archivarla del Inbox. */
   onFotoUsada?(ruta: string): void;
+}
+
+/** Título por defecto de un bloque nuevo, a partir de su destino. */
+function tituloDe(claseNombre: string, unidadNombre: string | null): string {
+  const fecha = new Date().toISOString().slice(0, 10);
+  return `Apunte ${fecha} - ${unidadNombre ?? claseNombre}`;
+}
+
+interface BloqueRafaga {
+  /** Id interno del bloque dentro de esta sesión, no el id final del apunte. */
+  clave: string;
+  claseId: string | null;
+  unidadId: string | null;
+  titulo: string;
+  /** null hasta que se confirma su primera página. */
+  carpeta: string | null;
+  paginas: PaginaApunte[];
+  numerosQr: Map<string, number | null>;
+}
+
+interface Pendiente {
+  ruta: string;
+  /** Motivo puntual por el que no se resolvió sola, para el repaso. */
+  motivo: string;
 }
 
 export function EscanearRafaga({
@@ -49,26 +89,51 @@ export function EscanearRafaga({
   // fotos; al terminar, si quedaron pendientes, pasa a ser esa lista y se
   // recorre de nuevo pero ya sin confirmación automática.
   const [orden, setOrden] = useState<string[]>(fotos);
-  const [pendientes, setPendientes] = useState<string[]>([]);
+  const [pendientes, setPendientes] = useState<Pendiente[]>([]);
+  // Copia de los motivos de la pasada anterior, para mostrarlos de entrada en
+  // el repaso: sin esto, hay que volver a mirar hoja por hoja para saber por
+  // qué había quedado ahí.
+  const [resumenPendientes, setResumenPendientes] = useState<Pendiente[]>([]);
   const [repaso, setRepaso] = useState(false);
   const [indice, setIndice] = useState(0);
   const [analisis, setAnalisis] = useState<AnalisisFoto | null>(null);
   const [esquinas, setEsquinas] = useState<Esquina[]>([]);
   const [geometria, setGeometria] = useState<GeometriaPlantilla>(config.apuntes.plantilla);
-  const [paginas, setPaginas] = useState<PaginaApunte[]>([]);
-  const [numerosQr, setNumerosQr] = useState<Map<string, number | null>>(new Map());
   const [analizando, setAnalizando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [carpeta, setCarpeta] = useState<string | null>(null);
 
-  const clase = datos.clases.find((c) => c.id === claseId) ?? null;
-  const unidad = clase?.unidades.find((u) => u.id === unidadId) ?? null;
+  // Modo integración: fuerza revisar todas las hojas a mano en esta tanda,
+  // sin tocar la config general (que sigue confirmando sola en un cuaderno
+  // nuevo). Es de sesión, no se guarda.
+  const [modoIntegracion, setModoIntegracion] = useState(false);
+
+  // Apuntes que va juntando esta tanda. Empieza con uno solo, con el destino
+  // que traía la cola de fotos — el caso simple (cuaderno nuevo) nunca crea
+  // un segundo bloque y termina igual que antes.
+  const [bloques, setBloques] = useState<BloqueRafaga[]>(() => [
+    { clave: crypto.randomUUID(), claseId, unidadId, titulo: "", carpeta: null, paginas: [], numerosQr: new Map() },
+  ]);
+  // Destino elegido para la próxima foto. Por defecto, el de la última
+  // elegida — así una racha de hojas del mismo ramo no obliga a re-elegir en
+  // cada una.
+  const [destino, setDestino] = useState<{ claseId: string | null; unidadId: string | null }>({
+    claseId,
+    unidadId,
+  });
+  const [formNuevo, setFormNuevo] = useState<{
+    claseId: string | null;
+    unidadId: string | null;
+    titulo: string;
+  } | null>(null);
+
   const fotoActual = orden[indice];
+  const claseDeDestino = datos.clases.find((c) => c.id === destino.claseId) ?? null;
 
-  // La confirmación automática solo corre en la primera pasada: en el repaso el
+  // La confirmación automática solo corre en la primera pasada, sin modo
+  // integración: en el repaso, o pidiendo revisión manual a propósito, el
   // usuario está justamente mirando las que dieron problema.
-  const automatico = config.apuntes.confirmacionAutomatica && !repaso;
+  const automatico = config.apuntes.confirmacionAutomatica && !repaso && !modoIntegracion;
 
   // Analiza la foto en cuanto se llega a ella: al confirmar la anterior, la
   // siguiente ya se está mirando sola.
@@ -105,10 +170,17 @@ export function EscanearRafaga({
   const resueltaSola =
     analisis !== null && analisis.fuente === "marcadores" && analisis.advertencias.length === 0;
 
-  const tituloApunte = useCallback(() => {
-    const fecha = new Date().toISOString().slice(0, 10);
-    return `Apunte ${fecha} - ${unidad?.nombre ?? clase?.nombre ?? "sin clasificar"}`;
-  }, [clase, unidad]);
+  /** Motivo puntual por el que una hoja no se resolvió sola. */
+  const motivoDe = useCallback((a: AnalisisFoto): string => {
+    if (a.advertencias.length > 0) return a.advertencias[0];
+    if (a.fuente === "contraste") {
+      return "Sin marcadores: el borde se detectó por contraste. Revisa las esquinas.";
+    }
+    if (a.fuente === "ninguna") {
+      return "No se encontró el borde de la hoja: hay que marcar las cuatro esquinas a mano.";
+    }
+    return "Revisar antes de confirmar.";
+  }, []);
 
   const confirmar = useCallback(async () => {
     if (!analisis || !fotoActual) return;
@@ -116,31 +188,54 @@ export function EscanearRafaga({
     setError(null);
 
     try {
-      // La carpeta del apunte se crea recién con la primera hoja confirmada:
-      // así cancelar en la primera foto no deja una carpeta vacía en disco.
-      const destino =
-        carpeta ??
+      // Se junta con el último bloque que tenga el mismo destino; si no hay
+      // ninguno (o "Nuevo apunte" lo forzó), se crea uno.
+      const existente = [...bloques]
+        .reverse()
+        .find((b) => b.claseId === destino.claseId && b.unidadId === destino.unidadId);
+      const c = datos.clases.find((x) => x.id === destino.claseId) ?? null;
+      const u = c?.unidades.find((x) => x.id === destino.unidadId) ?? null;
+      const bloque: BloqueRafaga =
+        existente ?? {
+          clave: crypto.randomUUID(),
+          claseId: destino.claseId,
+          unidadId: destino.unidadId,
+          titulo: tituloDe(c?.nombre ?? SIN_CLASE, u?.nombre ?? null),
+          carpeta: null,
+          paginas: [],
+          numerosQr: new Map(),
+        };
+
+      // La carpeta del bloque se crea recién con su primera hoja confirmada:
+      // así cancelar antes de eso no deja una carpeta vacía en disco.
+      const destinoCarpeta =
+        bloque.carpeta ??
         (await carpetaLibre(
-          carpetaApunte(
-            config.carpetaRaiz,
-            clase?.nombre ?? SIN_CLASE,
-            unidad?.nombre ?? null,
-            tituloApunte(),
-          ),
+          carpetaApunte(config.carpetaRaiz, c?.nombre ?? SIN_CLASE, u?.nombre ?? null, bloque.titulo),
         ));
-      if (!carpeta) setCarpeta(destino);
 
       const pagina = await digitalizarFoto(
         fotoActual,
         analisis,
         esquinas,
         geometria,
-        { carpeta: destino, numero: paginas.length + 1 },
+        { carpeta: destinoCarpeta, numero: bloque.paginas.length + 1 },
         config,
       );
 
-      setPaginas((ps) => [...ps, pagina]);
-      setNumerosQr((m) => new Map(m).set(pagina.id, analisis.pagina));
+      const clave = bloque.clave;
+      setBloques((bs) => {
+        const actualizado: BloqueRafaga = {
+          ...bloque,
+          carpeta: destinoCarpeta,
+          paginas: [...bloque.paginas, pagina],
+          numerosQr: new Map(bloque.numerosQr).set(pagina.id, analisis.pagina),
+        };
+        return bs.some((b) => b.clave === clave)
+          ? bs.map((b) => (b.clave === clave ? actualizado : b))
+          : [...bs, actualizado];
+      });
+
       onFotoUsada?.(fotoActual);
       setIndice((i) => i + 1);
     } catch (e) {
@@ -148,15 +243,17 @@ export function EscanearRafaga({
     } finally {
       setGuardando(false);
     }
-  }, [analisis, carpeta, clase, config, esquinas, fotoActual, geometria, onFotoUsada, paginas.length, tituloApunte, unidad]);
+  }, [analisis, bloques, config, datos.clases, destino, esquinas, fotoActual, geometria, onFotoUsada]);
 
   const saltar = () => setIndice((i) => i + 1);
 
   /** La hoja no se pudo resolver sola: se deja para el repaso del final. */
   const dejarPendiente = useCallback(() => {
-    setPendientes((p) => (fotoActual && !p.includes(fotoActual) ? [...p, fotoActual] : p));
+    if (!fotoActual) return;
+    const motivo = analisis ? motivoDe(analisis) : "Sin analizar.";
+    setPendientes((p) => (p.some((x) => x.ruta === fotoActual) ? p : [...p, { ruta: fotoActual, motivo }]));
     setIndice((i) => i + 1);
-  }, [fotoActual]);
+  }, [analisis, fotoActual, motivoDe]);
 
   // Confirmación automática: en cuanto el análisis dice que la hoja salió
   // limpia, se guarda y se pasa a la siguiente sin esperar un click. Lo que no
@@ -179,63 +276,88 @@ export function EscanearRafaga({
     resueltaSola,
   ]);
 
-  // Terminada la tanda, se arma el apunte y se devuelve.
+  // Terminada la tanda, se arma un apunte por cada bloque que juntó al menos
+  // una página y se devuelven todos juntos.
   useEffect(() => {
     if (indice < orden.length) return;
 
     // Terminada la pasada, si algo quedó pendiente se recorre de nuevo esa
     // lista, ahora a mano.
     if (pendientes.length > 0) {
-      setOrden(pendientes);
+      setResumenPendientes(pendientes);
+      setOrden(pendientes.map((p) => p.ruta));
       setPendientes([]);
       setRepaso(true);
       setIndice(0);
       return;
     }
-    if (paginas.length === 0 || !carpeta) return;
 
-    const ordenadas = ordenarPorQr(paginas, numerosQr);
-    onTerminar(
-      {
-        id: crypto.randomUUID(),
-        titulo: tituloApunte(),
-        claseId: clase?.id ?? null,
-        unidadId: unidad?.id ?? null,
-        grabacionId: null,
-        claseNombre: clase?.nombre ?? SIN_CLASE,
-        unidadNombre: unidad?.nombre ?? SIN_UNIDAD,
-        carpeta,
-        fechaISO: new Date().toISOString(),
-        paginas: ordenadas,
-        idioma: config.apuntes.idioma,
-        archivoTexto: "",
-        tags: ["escaneado"],
-        reemplazaA: null,
-      },
-      ordenadas,
+    const listos = bloques.filter(
+      (b): b is BloqueRafaga & { carpeta: string } => b.paginas.length > 0 && b.carpeta !== null,
     );
-  }, [
-    carpeta,
-    clase,
-    config.apuntes.idioma,
-    orden.length,
-    pendientes,
-    indice,
-    numerosQr,
-    onTerminar,
-    paginas,
-    tituloApunte,
-    unidad,
-  ]);
+    if (listos.length === 0) return;
+
+    onTerminar(
+      listos.map((b) => {
+        const c = datos.clases.find((x) => x.id === b.claseId) ?? null;
+        const u = c?.unidades.find((x) => x.id === b.unidadId) ?? null;
+        const paginas = ordenarPorQr(b.paginas, b.numerosQr);
+        const apunte: Apunte = {
+          id: crypto.randomUUID(),
+          titulo: b.titulo,
+          claseId: c?.id ?? null,
+          unidadId: u?.id ?? null,
+          grabacionId: null,
+          claseNombre: c?.nombre ?? SIN_CLASE,
+          unidadNombre: u?.nombre ?? SIN_UNIDAD,
+          carpeta: b.carpeta,
+          fechaISO: new Date().toISOString(),
+          paginas,
+          idioma: config.apuntes.idioma,
+          archivoTexto: "",
+          tags: ["escaneado"],
+          reemplazaA: null,
+        };
+        return { apunte, paginas };
+      }),
+    );
+  }, [bloques, config.apuntes.idioma, datos.clases, orden.length, pendientes, indice, onTerminar]);
+
+  const abrirFormNuevo = () => {
+    const c = claseDeDestino;
+    const u = c?.unidades.find((x) => x.id === destino.unidadId) ?? null;
+    setFormNuevo({
+      claseId: destino.claseId,
+      unidadId: destino.unidadId,
+      titulo: tituloDe(c?.nombre ?? SIN_CLASE, u?.nombre ?? null),
+    });
+  };
+
+  const confirmarFormNuevo = () => {
+    if (!formNuevo) return;
+    const nuevo: BloqueRafaga = {
+      clave: crypto.randomUUID(),
+      claseId: formNuevo.claseId,
+      unidadId: formNuevo.unidadId,
+      titulo: formNuevo.titulo.trim() || tituloDe(SIN_CLASE, null),
+      carpeta: null,
+      paginas: [],
+      numerosQr: new Map(),
+    };
+    // Va al final: el emparejamiento por destino toma siempre el último
+    // bloque que coincida, así que las hojas siguientes de este mismo destino
+    // van a caer acá y no en el bloque viejo, aunque el ramo se repita.
+    setBloques((bs) => [...bs, nuevo]);
+    setDestino({ claseId: formNuevo.claseId, unidadId: formNuevo.unidadId });
+    setFormNuevo(null);
+  };
+
+  const totalPaginas = bloques.reduce((t, b) => t + b.paginas.length, 0);
 
   if (indice >= orden.length) {
     return (
       <div className="rafaga vacio">
-        <p>
-          {paginas.length === 0
-            ? "No se digitalizó ninguna hoja."
-            : "Listo: armando el apunte…"}
-        </p>
+        <p>{totalPaginas === 0 ? "No se digitalizó ninguna hoja." : "Listo: armando el apunte…"}</p>
       </div>
     );
   }
@@ -248,12 +370,35 @@ export function EscanearRafaga({
           {repaso && <span className="sutil"> · repaso de pendientes</span>}
         </strong>
         <span className="sutil">
-          {paginas.length} {paginas.length === 1 ? "página lista" : "páginas listas"}
+          {totalPaginas} {totalPaginas === 1 ? "página lista" : "páginas listas"}
+          {bloques.filter((b) => b.paginas.length > 0).length > 1 &&
+            ` en ${bloques.filter((b) => b.paginas.length > 0).length} apuntes`}
         </span>
+        <label className="selector-fila" title="Ninguna hoja se confirma sola: se revisan todas a mano.">
+          <input
+            type="checkbox"
+            checked={modoIntegracion}
+            onChange={(e) => setModoIntegracion(e.target.checked)}
+          />
+          <span>Modo integración</span>
+        </label>
         <button className="btn" onClick={onCancelar} disabled={guardando}>
           Cancelar
         </button>
       </div>
+
+      {repaso && resumenPendientes.length > 0 && (
+        <details className="tarjeta resumen-pendientes">
+          <summary>{resumenPendientes.length} hojas para repasar — por qué quedaron pendientes</summary>
+          <ul>
+            {resumenPendientes.map((p) => (
+              <li key={p.ruta}>
+                <strong>{nombreArchivo(p.ruta)}:</strong> {p.motivo}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {error && (
         <div className="aviso aviso-error">
@@ -309,6 +454,95 @@ export function EscanearRafaga({
             onCambiar={setEsquinas}
           />
 
+          <div className="destino-foto">
+            <label className="selector-fila">
+              <span>Clase</span>
+              <select
+                value={destino.claseId ?? ""}
+                onChange={(e) => setDestino({ claseId: e.target.value || null, unidadId: null })}
+              >
+                <option value="">Sin clasificar</option>
+                {datos.clases.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombre}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="selector-fila">
+              <span>Unidad</span>
+              <select
+                value={destino.unidadId ?? ""}
+                onChange={(e) => setDestino((d) => ({ ...d, unidadId: e.target.value || null }))}
+                disabled={!claseDeDestino}
+              >
+                <option value="">Sin unidad</option>
+                {claseDeDestino?.unidades.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.nombre}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="btn" onClick={abrirFormNuevo} disabled={guardando}>
+              Nuevo apunte
+            </button>
+          </div>
+
+          {formNuevo && (
+            <div className="tarjeta destino-nuevo">
+              <strong>Nuevo apunte para el resto de la tanda</strong>
+              <label>
+                <span>Clase</span>
+                <select
+                  value={formNuevo.claseId ?? ""}
+                  onChange={(e) =>
+                    setFormNuevo((f) => f && { ...f, claseId: e.target.value || null, unidadId: null })
+                  }
+                >
+                  <option value="">Sin clasificar</option>
+                  {datos.clases.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Unidad</span>
+                <select
+                  value={formNuevo.unidadId ?? ""}
+                  onChange={(e) => setFormNuevo((f) => f && { ...f, unidadId: e.target.value || null })}
+                  disabled={!datos.clases.find((c) => c.id === formNuevo.claseId)}
+                >
+                  <option value="">Sin unidad</option>
+                  {datos.clases
+                    .find((c) => c.id === formNuevo.claseId)
+                    ?.unidades.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.nombre}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label>
+                <span>Título</span>
+                <input
+                  value={formNuevo.titulo}
+                  onChange={(e) => setFormNuevo((f) => f && { ...f, titulo: e.target.value })}
+                />
+              </label>
+              <div className="acciones-fila">
+                <button className="btn" onClick={() => setFormNuevo(null)}>
+                  Cancelar
+                </button>
+                <button className="btn btn-primario" onClick={confirmarFormNuevo}>
+                  Usar este apunte
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="rafaga-controles">
             {/* Sin QR no se puede saber el tamaño de papel mirando la foto:
                 lo elige el usuario y queda para las siguientes de la tanda. */}
@@ -345,7 +579,11 @@ export function EscanearRafaga({
             <button className="btn" onClick={saltar} disabled={guardando}>
               Descartar esta foto
             </button>
-            <button className="btn btn-primario" onClick={confirmar} disabled={guardando}>
+            <button
+              className="btn btn-primario"
+              onClick={confirmar}
+              disabled={guardando || formNuevo !== null}
+            >
               {guardando ? "Recortando…" : "Confirmar y seguir"}
             </button>
           </div>
@@ -358,8 +596,8 @@ export function EscanearRafaga({
                 ? ", en color y sin sombras"
                 : ", sin retoque"}
             .
-            {paginas.length > 0 &&
-              ` Van ${formatearBytes(paginas.reduce((t, p) => t + p.bytes, 0))} en esta tanda.`}
+            {totalPaginas > 0 &&
+              ` Van ${formatearBytes(bloques.reduce((t, b) => t + b.paginas.reduce((s, p) => s + p.bytes, 0), 0))} en esta tanda.`}
           </p>
         </>
       )}

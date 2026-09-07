@@ -4,10 +4,23 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Este proyecto todavía no sigue versionado semántico estricto (está en `0.x`,
 así que cualquier versión puede traer cambios incompatibles).
 
-## [0.5.0] - 2026-09-02
+## [0.5.0] - 2026-09-07
 
 ### Agregado
 
+- **Escaneo en ráfaga con destino por foto**, para digitalizar un cuaderno
+  viejo con hojas de varios ramos mezcladas sin tener que hacer una tanda por
+  ramo. Cada foto elige su clase y unidad; las consecutivas del mismo destino
+  se juntan solas en el mismo apunte, y "Nuevo apunte" corta en caliente sin
+  perder lo ya confirmado. Un modo integración de sesión fuerza revisar todas
+  las hojas a mano en esa tanda, sin tocar la confirmación automática que usa
+  el resto de los cuadernos.
+- El repaso de hojas pendientes ahora muestra, antes de empezar, el motivo
+  puntual de cada una (marcador no leído, foto movida, sin borde detectado…)
+  en vez de tener que abrirlas de a una para saber por qué quedaron ahí.
+- **Hoja de calibración de una sola página** en la plantilla imprimible, para
+  probar la impresora y medir una hoja real del cuaderno contra la geometría
+  configurada antes de mandar el lote completo.
 - **Transcripción en paralelo a la grabación** (Configuración › Transcripción ›
   "Transcribir mientras se graba"), apagada por defecto. Con el interruptor
   activado, el motor local va transcribiendo la clase en tramos de dos minutos

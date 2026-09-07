@@ -232,6 +232,32 @@ export function PlantillaImprimible() {
         </div>
       )}
 
+      <div className="aviso aviso-info">
+        <Icono nombre="alerta" />
+        <span>
+          Antes de imprimir el lote completo: imprime esta hoja sola primero, y
+          mide una hoja real y ya usada del cuaderno con una regla contra{" "}
+          <strong>
+            {g.anchoMm} × {g.altoMm} mm
+          </strong>{" "}
+          de la config. Una hoja vieja puede tener el borde desgastado por el
+          anillado o no calzar exacto, y eso no tiene arreglo después de
+          imprimir cuarenta.
+        </span>
+      </div>
+      <button
+        className="btn"
+        disabled={generando || problema !== null}
+        onClick={() =>
+          void guardar("prueba-calibracion-1hoja.pdf", () =>
+            generarPlantilla(g, 1, config.apuntes.numeroDePagina),
+          )
+        }
+      >
+        <Icono nombre="imprimir" />
+        Hoja de prueba (calibración, 1 sola)
+      </button>
+
       <label className="selector-fila">
         <input type="checkbox" checked={duplex} onChange={(e) => setDuplex(e.target.checked)} />
         <span>Imprimir por las dos caras con una impresora sin dúplex automático</span>

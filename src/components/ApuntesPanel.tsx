@@ -55,14 +55,21 @@ export function ApuntesPanel({ apunteInicial, onApunteAbierto }: Props) {
     0,
   );
 
-  const terminarRafaga = async (apunte: Apunte, paginas: PaginaApunte[]) => {
-    const archivoTexto = await guardarTexto(apunte);
-    const completo = { ...apunte, paginas, archivoTexto };
-    await agregarApunte(completo);
-    // El reconocimiento arranca solo, en background: la interfaz queda libre
-    // igual que con la transcripción de audio.
-    encolar(completo);
-    setModo({ tipo: "editor", apunteId: completo.id });
+  // Una tanda puede repartirse en varios apuntes (hojas viejas de ramos
+  // distintos mezcladas en un mismo cuaderno): se guardan todos y se abre el
+  // último, que es el que probablemente se siga editando.
+  const terminarRafaga = async (resultados: { apunte: Apunte; paginas: PaginaApunte[] }[]) => {
+    let ultimo: Apunte | null = null;
+    for (const { apunte, paginas } of resultados) {
+      const archivoTexto = await guardarTexto(apunte);
+      const completo = { ...apunte, paginas, archivoTexto };
+      await agregarApunte(completo);
+      // El reconocimiento arranca solo, en background: la interfaz queda libre
+      // igual que con la transcripción de audio.
+      encolar(completo);
+      ultimo = completo;
+    }
+    setModo(ultimo ? { tipo: "editor", apunteId: ultimo.id } : { tipo: "lista" });
   };
 
   const borrar = async () => {
@@ -80,7 +87,7 @@ export function ApuntesPanel({ apunteInicial, onApunteAbierto }: Props) {
           fotos={modo.fotos}
           claseId={modo.claseId}
           unidadId={modo.unidadId}
-          onTerminar={(a, p) => void terminarRafaga(a, p)}
+          onTerminar={(resultados) => void terminarRafaga(resultados)}
           onCancelar={() => setModo({ tipo: "lista" })}
           onFotoUsada={(ruta) => void archivarFoto(ruta, config.carpetaInbox)}
         />
