@@ -17,12 +17,13 @@ import {
   geometriaDePagina,
   ordenReverso,
   aMm,
+  PAGINA_MAXIMA,
+  problemaDeNumeracion,
   desdeMm,
   papelDe,
   planDuplexManual,
   problemaDeGeometria,
   LADO_MARCADOR_MM,
-  LADO_QR_GEOMETRIA_MM,
   MARGEN_BORDE_MM,
 } from "./plantilla.ts";
 import {
@@ -45,7 +46,7 @@ const B5 = {
   const c = centrosQrMm(B5);
   // Los mismos números que espera el test de Rust
   // (`el_anillado_corre_solo_las_esquinas_de_su_lado`): 8 de borde + 14/2 de
-  // medio QR = 15, más 18 de anillado del lado izquierdo.
+  // medio marcador = 15, más 18 de anillado del lado izquierdo.
   assert.equal(c[0][0], 33, "esquina superior izquierda corrida por el anillado");
   assert.equal(c[3][0], 33, "la inferior izquierda igual que la superior");
   assert.equal(c[1][0], 161, "la derecha sin anillado");
@@ -53,7 +54,7 @@ const B5 = {
   assert.equal(c[2][1], 235, "abajo");
 
   // El punto de todo esto: NO es un rectángulo centrado.
-  assert.notEqual(c[0][0], B5.anchoMm - c[1][0], "los QR no deben quedar simétricos");
+  assert.notEqual(c[0][0], B5.anchoMm - c[1][0], "los marcadores no deben quedar simétricos");
 
   // Y los cuatro caen dentro de la hoja.
   for (const [x, y] of c) {
@@ -72,7 +73,7 @@ const B5 = {
 
 {
   const area = areaEscribibleMm(B5);
-  assert.ok(area.x >= 33, "el área de escritura no debe pisar el anillado ni los QR");
+  assert.ok(area.x >= 33, "el área de escritura no debe pisar el anillado ni los marcadores");
   assert.ok(area.x + area.ancho <= B5.anchoMm, "el área no debe salirse de la hoja");
   assert.ok(area.alto > 100, "debería quedar hoja utilizable de sobra");
 }
@@ -110,14 +111,11 @@ const B5 = {
 // -------------------------------------------- marcadores en la hoja
 
 {
-  // El QR de geometría va abajo al centro y no debe pisar los marcadores de las
-  // esquinas inferiores ni salirse de la hoja.
-  const qrIzq = B5.anchoMm / 2 - LADO_QR_GEOMETRIA_MM / 2;
-  const qrDer = B5.anchoMm / 2 + LADO_QR_GEOMETRIA_MM / 2;
-  const qrArriba = B5.altoMm - MARGEN_BORDE_MM - LADO_QR_GEOMETRIA_MM - 4;
-  const qrAbajo = qrArriba + LADO_QR_GEOMETRIA_MM;
-
-  assert.ok(qrAbajo < B5.altoMm, "el QR de geometría no debe salirse por abajo");
+  // Las etiquetas "ARRIBA" y "ABAJO" van al centro de cada borde, y ahí no
+  // puede haber ningún marcador: son lo único que dice de qué lado entra la
+  // hoja en la bandeja al imprimir el reverso.
+  const yArriba = (B5.ladoAnillado === "arriba" ? B5.margenAnilladoMm : 0) + 5;
+  const yAbajo = B5.altoMm - 4;
 
   for (const [i, [cx, cy]] of centrosQrMm(B5).entries()) {
     const izq = cx - LADO_MARCADOR_MM / 2;
@@ -128,9 +126,54 @@ const B5 = {
       izq > 0 && arr > 0 && der < B5.anchoMm && aba < B5.altoMm,
       `el marcador ${i} se sale de la hoja`,
     );
-    const seSolapan = izq < qrDer && der > qrIzq && arr < qrAbajo && aba > qrArriba;
-    assert.ok(!seSolapan, `el marcador ${i} pisa el QR de geometría`);
+    // Las etiquetas están centradas en x, así que basta con que ningún
+    // marcador cruce el eje vertical de la hoja a esas alturas.
+    const enElEje = izq < B5.anchoMm / 2 && der > B5.anchoMm / 2;
+    assert.ok(
+      !enElEje || (yArriba < arr && yAbajo > aba),
+      `el marcador ${i} pisa las etiquetas de arriba/abajo`,
+    );
   }
+
+  // Y el borde de abajo tiene lugar para la etiqueta debajo de los marcadores.
+  const bordeMarcador = MARGEN_BORDE_MM + LADO_MARCADOR_MM;
+  assert.ok(yAbajo > B5.altoMm - bordeMarcador, "la etiqueta de abajo debe ir bajo los marcadores");
+  assert.ok(yAbajo < B5.altoMm, "la etiqueta de abajo no debe salirse de la hoja");
+}
+
+// ------------------------------------------- frente y reverso de cada hoja
+
+{
+  // La invariante que sostiene todo el escaneo desde que la hoja dejó de
+  // llevar su geometría impresa: impar = frente, par = reverso. Rust aplica la
+  // misma regla en `geometria_de_pagina` para saber por qué cara va una foto.
+  assert.equal(geometriaDePagina(B5, 1).ladoAnillado, "izquierda", "las impares son el frente");
+  assert.equal(geometriaDePagina(B5, 2).ladoAnillado, "derecha", "las pares son el reverso");
+  assert.equal(geometriaDePagina(B5, 7).ladoAnillado, "izquierda");
+  assert.equal(geometriaDePagina(B5, 8).ladoAnillado, "derecha");
+
+  // Y el reverso corre los marcadores el margen de anillado entero: si el
+  // escaneo usara la cara equivocada, el recorte saldría corrido justo eso.
+  const frente = centrosQrMm(geometriaDePagina(B5, 7));
+  const reverso = centrosQrMm(geometriaDePagina(B5, 8));
+  assert.equal(frente[0][0] - reverso[0][0], B5.margenAnilladoMm, "el reverso corre los marcadores");
+
+  // Con el anillado arriba no hay nada que invertir: el volteo del dúplex
+  // manual es sobre el eje vertical y deja el borde superior donde estaba.
+  const arriba = { ...B5, ladoAnillado: "arriba" };
+  assert.equal(geometriaDePagina(arriba, 2).ladoAnillado, "arriba");
+}
+
+// ------------------------------------------ tope del diccionario de marcadores
+
+{
+  assert.equal(problemaDeNumeracion(1, 40), null);
+  assert.equal(problemaDeNumeracion(PAGINA_MAXIMA, 1), null, "la última página entra justo");
+  assert.match(problemaDeNumeracion(PAGINA_MAXIMA, 2), /solo llegan/);
+  // El caso real: continuar un lote alto con el dúplex, que gasta dos números
+  // por hoja. Antes esto reventaba a mitad de generar el PDF.
+  assert.match(problemaDeNumeracion(200, 40 * 2), /solo llegan/);
+  assert.equal(problemaDeNumeracion(200, 20 * 2), null);
 }
 
 // ------------------------------------------------------ unidades
@@ -142,7 +185,7 @@ const B5 = {
   assert.equal(aMm(8.5, "in"), 215.9, "carta en pulgadas");
   assert.equal(aMm(11, "in"), 279.4);
 
-  // Sin redondeo, 8.5 pulgadas deja un 215.90000000000003 dentro del QR.
+  // Sin redondeo, 8.5 pulgadas deja un 215.90000000000003 en la config.
   assert.ok(Number.isInteger(aMm(8.5, "in") * 10), "a lo sumo un decimal");
 
   assert.equal(desdeMm(173, "mm"), 173);
@@ -162,7 +205,7 @@ const B5 = {
 
 {
   // Los agujeros están en el papel, no en la cara: al dar vuelta la hoja el
-  // anillado queda del otro lado. Si esto se rompe, dos QR del reverso caen
+  // anillado queda del otro lado. Si esto se rompe, dos marcadores del reverso caen
   // justo encima de la perforación.
   const atras = caraReverso(B5);
   assert.equal(atras.ladoAnillado, "derecha");
@@ -245,7 +288,7 @@ const pagina = (id, numero, extra = {}) => ({
   assert.deepEqual(
     ordenadas.map((p) => p.id),
     ["b", "c", "a"],
-    "el número de página del QR manda sobre el orden en que se escanearon",
+    "el número de página del marcador manda sobre el orden en que se escanearon",
   );
   assert.deepEqual(
     ordenadas.map((p) => p.numero),
@@ -255,7 +298,7 @@ const pagina = (id, numero, extra = {}) => ({
 }
 
 {
-  // Sin QR, se respeta el orden de escaneo y quedan al final de las que sí tienen.
+  // Sin marcadores, se respeta el orden de escaneo y quedan al final de las que sí tienen.
   const mezcla = [pagina("sinqr", 1), pagina("conqr", 2)];
   const numeros = new Map([
     ["sinqr", null],
@@ -369,4 +412,4 @@ const apunte = (id, extra = {}) => ({
   assert.deepEqual(progresoReconocimiento(a), { hechas: 1, total: 2 });
 }
 
-console.log("apuntes: 19 casos OK");
+console.log("apuntes: 21 casos OK");

@@ -13,9 +13,10 @@
 //! píxeles por celda, donde el QR ya fallaba.
 //!
 //! Lo que un ArUco **no** puede llevar es el tamaño de papel: su contenido es
-//! un número de diccionario, no texto. Por eso la plantilla sigue imprimiendo
-//! un QR chico abajo al centro con la geometría; ese no participa de la
-//! homografía, así que si falla se cae a la configurada y se avisa.
+//! un número de diccionario, no texto. Y no hace falta que lo lleve: el papel
+//! sale del configurado en Ajustes. Hubo un QR chico abajo al centro con la
+//! geometría de cada hoja, y se sacó — un código más que leer no compensaba
+//! poder cambiar de papel sin romper las hojas viejas.
 
 use image::{GrayImage, ImageBuffer, Luma};
 

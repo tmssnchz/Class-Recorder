@@ -1,6 +1,6 @@
 [package]
 name = "class-recorder"
-version = "0.5.0"
+version = "0.6.0"
 description = "Grabador, organizador y transcriptor de clases universitarias"
 authors = ["Tomas"]
 edition = "2021"
@@ -48,12 +48,8 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # resto de la app.
 #   image      decodificar la foto (con su orientación EXIF) y guardar el JPEG
 #   imageproc  Canny, contornos, homografía y filtros de limpieza
-#   rqrr       leer los QR de la plantilla y saber dónde quedó cada uno
-#   qrcode     generarlos al imprimir la plantilla
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 imageproc = { version = "0.27", default-features = false }
-rqrr = "0.10"
-qrcode = { version = "0.14", default-features = false }
 # Marcadores ArUco de las esquinas. Se eligió por encima de `apriltag` (ata a
 # una librería de C vía `apriltag-sys`) y de `aprilgrid` (arrastra 111 crates,
 # incluido un codificador AV1 completo, porque usa `image` con todas sus

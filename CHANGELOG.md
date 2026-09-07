@@ -4,6 +4,49 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Este proyecto todavía no sigue versionado semántico estricto (está en `0.x`,
 así que cualquier versión puede traer cambios incompatibles).
 
+## [0.6.0] - 2026-09-07
+
+### Cambiado
+
+- **Se quitó el QR de geometría de la plantilla.** Cada hoja llevaba, abajo al
+  centro, un QR chico con su propio tamaño de papel y su lado de anillado.
+  Ahora al escanear se usa siempre el papel configurado en Configuración ›
+  Apuntes. Los cuatro marcadores ArUco de las esquinas —los que hacen la
+  detección y llevan el número de página— no cambian.
+- El trade-off aceptado a propósito: sin geometría por hoja se pierde poder
+  cambiar de tamaño de papel sin romper las hojas viejas. Si algún día se
+  cambia el papel configurado, las hojas impresas antes se van a recortar con
+  las medidas nuevas. A cambio hay un código menos que leer por foto, y era el
+  que más fallaba con impresiones claras.
+- **Compatible con las hojas ya impresas**: el QR sigue impreso en el papel
+  viejo y simplemente ya no se lee. No hace falta reimprimir nada.
+- La plantilla ahora imprime **"ARRIBA" y "ABAJO"** al centro de cada borde.
+  Los cuatro marcadores se ven iguales a simple vista y el QR de abajo era lo
+  único que delataba la orientación: sin él no habría forma de saber de qué
+  lado poner la hoja en la bandeja al imprimir el reverso. Cuando se imprime el
+  número de página, va en esa misma línea (`ABAJO · 7`).
+- El aviso del escaneo ya no dice "hoja 7 de una plantilla de 173 × 250 mm",
+  que ahora sería repetir lo configurado: dice "recortada con el papel
+  configurado", para no dar a entender que el tamaño se leyó de la hoja.
+
+### Corregido
+
+- **El reverso de las hojas se recortaba corrido el margen de anillado entero.**
+  Al dar vuelta una hoja, los agujeros del anillado pasan al borde opuesto, así
+  que la plantilla imprime las caras pares con el margen —y los marcadores— del
+  otro lado. Ese dato viajaba dentro del QR de geometría; al sacarlo, el
+  escaneo pasaba a recortar todos los reversos con la geometría del frente, lo
+  que en B5 con 18 mm de anillado se comía 18 mm de hoja escrita por un borde y
+  tomaba 18 mm de fuera del papel por el otro, sin dar ningún error. Ahora la
+  cara se deduce del número de página, que es lo que sí llevan los marcadores:
+  **las páginas impares son el frente de una hoja física y las pares el
+  reverso**, y esa regla la aplican por igual los dos generadores de PDF y el
+  escaneo.
+- La plantilla avisa antes de generar si el lote se pasa de la página 254, que
+  es hasta donde llega el diccionario de marcadores. Con el campo "empezar en
+  la página" era fácil pasarse, y hasta ahora eso fallaba a mitad de armar el
+  PDF, después de haber elegido dónde guardarlo.
+
 ## [0.5.0] - 2026-09-07
 
 ### Agregado

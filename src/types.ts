@@ -168,8 +168,9 @@ export type ModoEscaneo = "color" | "gris" | "original";
 
 /**
  * Geometría de una hoja de la plantilla imprimible. Nada de esto está fijo en
- * el código: viaja dentro del propio QR, así que agregar un tamaño de papel es
- * agregar una entrada al catálogo y nada más.
+ * el código, así que agregar un tamaño de papel es agregar una entrada al
+ * catálogo y nada más. La hoja impresa no lleva su propia geometría: al
+ * escanear se usa siempre la que esté configurada acá.
  */
 export interface GeometriaPlantilla {
   anchoMm: number;

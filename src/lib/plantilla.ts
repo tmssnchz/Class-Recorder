@@ -1,17 +1,18 @@
 /**
- * Plantilla imprimible con los cuatro marcadores QR.
+ * Plantilla imprimible con los cuatro marcadores ArUco de las esquinas.
  *
- * El PDF se arma con jsPDF, que ya se usa para exportar clases, y los QR los
- * genera Rust (`generar_qr_png`) porque es el mismo código que después los
- * lee: si alguna vez cambia el formato del payload, cambia en un solo lado.
+ * El PDF se arma con jsPDF, que ya se usa para exportar clases, y los
+ * marcadores los genera Rust (`generar_marcador_png`) porque es el mismo código
+ * que después los lee: si cambia el diccionario, cambia en un solo lado.
  *
- * Nada de la geometría está fijo acá: el tamaño de papel y el lado del
- * anillado vienen de la config y viajan dentro del QR, así que agregar A5 o
- * cualquier otro formato es agregar una línea a `PAPELES`.
+ * Nada de la geometría está fijo acá: el tamaño de papel y el lado del anillado
+ * vienen de la config, así que agregar A5 o cualquier otro formato es agregar
+ * una línea a `PAPELES`. La hoja no lleva su propio tamaño impreso: al escanear
+ * se usa siempre el papel configurado.
  */
 import { jsPDF } from "jspdf";
 
-import { generarMarcadorPng, generarQrPng } from "./escaneo.ts";
+import { generarMarcadorPng } from "./escaneo.ts";
 import type { GeometriaPlantilla, LadoAnillado } from "../types.ts";
 
 export interface Papel {
@@ -39,8 +40,8 @@ export const PAPELES: Papel[] = [
  * Unidad en la que el usuario escribe las medidas.
  *
  * Solo afecta a lo que se teclea: adentro todo se guarda y se transmite en
- * milímetros, incluido el payload del QR. Tener una sola unidad en el modelo
- * evita que un redondeo de ida y vuelta corra la geometría sin que se note.
+ * milímetros. Tener una sola unidad en el modelo evita que un redondeo de ida
+ * y vuelta corra la geometría sin que se note.
  */
 export type Unidad = "mm" | "cm" | "in";
 
@@ -64,9 +65,9 @@ function factor(u: Unidad): number {
 /**
  * Pasa a milímetros lo que el usuario escribió.
  *
- * Se redondea a un decimal porque es lo que sabe transportar el QR, y porque
- * ninguna impresora doméstica distingue menos que eso. Sin el redondeo, una
- * medida en pulgadas dejaría un `215.90000000000003` dentro del código.
+ * Se redondea a un decimal porque ninguna impresora doméstica distingue menos
+ * que eso, y porque si no una medida en pulgadas dejaría un
+ * `215.90000000000003` guardado en la config.
  */
 export function aMm(valor: number, u: Unidad): number {
   return Math.round(valor * factor(u) * 10) / 10;
@@ -96,8 +97,8 @@ export function papelDe(g: GeometriaPlantilla): Papel | null {
  * Qué le impide a esta geometría ser imprimible, o `null` si está bien.
  *
  * Con una hoja angosta y un margen de anillado grande, el área de escritura se
- * puede volver negativa y los QR de los dos lados se pisan entre sí. Vale la
- * pena avisar antes de gastar tinta.
+ * puede volver negativa y los marcadores de los dos lados se pisan entre sí.
+ * Vale la pena avisar antes de gastar tinta.
  */
 export function problemaDeGeometria(g: GeometriaPlantilla): string | null {
   if (g.anchoMm < 80 || g.altoMm < 80) {
@@ -135,13 +136,37 @@ export const LADO_QR_MM = 14;
  */
 export const LADO_MARCADOR_MM = 10;
 
-/** Lado del QR de geometría que va abajo al centro. */
-export const LADO_QR_GEOMETRIA_MM = 12;
-/** Separación entre el borde del papel y el borde del QR. */
+/** Separación entre el borde del papel y el borde del marcador. */
 export const MARGEN_BORDE_MM = 8;
 
 /**
- * Centro de cada QR en milímetros: 0 = arriba izquierda, 1 = arriba derecha,
+ * Última página que entra en el diccionario de marcadores.
+ *
+ * Son 1023 códigos y cada hoja gasta cuatro, uno por esquina. Tiene que seguir
+ * coincidiendo con `PAGINAS_MAXIMAS` en Rust, que rechaza de ahí para arriba.
+ */
+export const PAGINA_MAXIMA = Math.floor(1023 / 4) - 1;
+
+/**
+ * Qué le impide imprimir este lote, o `null` si está bien.
+ *
+ * Con el campo "empezar en la página" es fácil pasarse del tope sin darse
+ * cuenta, y hasta ahora eso reventaba a mitad de generar el PDF con un error
+ * del backend, después de haber elegido dónde guardarlo.
+ */
+export function problemaDeNumeracion(desde: number, paginas: number): string | null {
+  const ultima = desde + paginas - 1;
+  if (ultima > PAGINA_MAXIMA) {
+    return (
+      `Este lote llegaría hasta la página ${ultima} y los marcadores solo llegan ` +
+      `hasta la ${PAGINA_MAXIMA}. Imprime menos hojas o empieza desde un número más bajo.`
+    );
+  }
+  return null;
+}
+
+/**
+ * Centro de cada marcador en milímetros: 0 = arriba izquierda, 1 = arriba derecha,
  * 2 = abajo derecha, 3 = abajo izquierda.
  *
  * Es la misma cuenta que hace `GeometriaPlantilla::centros_qr_mm` en Rust, y
@@ -168,7 +193,7 @@ export function centrosQrMm(g: GeometriaPlantilla): [number, number][] {
  * Los agujeros del anillado están en un borde del papel, no de la cara: al dar
  * vuelta la hoja pasan al borde opuesto. Si el reverso se imprimiera con la
  * misma geometría que el frente, el margen quedaría del lado equivocado y dos
- * de los QR caerían justo encima de la perforación.
+ * de los marcadores caerían justo encima de la perforación.
  *
  * Con el anillado arriba no cambia nada, porque el volteo normal del dúplex
  * manual es sobre el eje vertical (como pasar la hoja de un libro) y ese eje
@@ -183,8 +208,15 @@ export function caraReverso(g: GeometriaPlantilla): GeometriaPlantilla {
 }
 
 /**
- * Geometría que le toca a una página según su número: las impares son la cara
- * de adelante de una hoja y las pares el reverso de esa misma hoja.
+ * Geometría que le toca a una página según su número.
+ *
+ * **Invariante de toda la app**: las páginas impares son el frente de una hoja
+ * física y las pares el reverso de esa misma hoja. La comparte
+ * `geometria_de_pagina` en Rust, que es lo que le permite al escaneo saber por
+ * qué cara va una foto — el único dato que tiene es el número de página del
+ * marcador. Si los dos generadores de PDF y el escaneo dejaran de aplicar la
+ * misma regla, el recorte del reverso saldría corrido el margen de anillado
+ * entero sin dar ningún error.
  */
 export function geometriaDePagina(g: GeometriaPlantilla, pagina: number): GeometriaPlantilla {
   return pagina % 2 === 0 ? caraReverso(g) : g;
@@ -213,12 +245,11 @@ function nuevoDocumento(g: GeometriaPlantilla): jsPDF {
 }
 
 /**
- * Dibuja los cuatro QR y el número de página de una cara.
+ * Dibuja los cuatro marcadores y las etiquetas de una cara.
  *
  * `g` es la geometría **de esta cara**, no la del papel: quien llama decide si
- * es un frente o un reverso. Los QR se generan con esa geometría, así que cada
- * cara lleva codificado su propio lado de anillado y el escaneo la corrige
- * sola, sin preguntar nada ni saber por qué cara va.
+ * es un frente o un reverso, y con eso los marcadores caen del lado correcto
+ * del anillado.
  */
 async function dibujarHoja(
   doc: jsPDF,
@@ -226,7 +257,9 @@ async function dibujarHoja(
   pagina: number,
   numerar: boolean,
 ): Promise<void> {
-  // Cuatro marcadores ArUco en las esquinas: geometría y número de página.
+  // Cuatro marcadores ArUco en las esquinas: llevan el número de página y cuál
+  // esquina es cada uno. El tamaño de papel no viaja en la hoja; al escanear se
+  // usa el configurado en Ajustes.
   const centros = centrosQrMm(g);
   for (let esquina = 0; esquina < 4; esquina++) {
     // 350 px para 7 celdas son 50 px por celda: sobra para que la impresora no
@@ -243,35 +276,34 @@ async function dibujarHoja(
     );
   }
 
-  // Y un QR abajo al centro con el tamaño de papel, que un id de marcador no
-  // puede transportar. No participa de la homografía: si no se lee, el escaneo
-  // usa el papel configurado y avisa.
-  const geometriaQr = await generarQrPng(g, 0, pagina, 400);
-  doc.addImage(
-    `data:image/png;base64,${geometriaQr}`,
-    "PNG",
-    g.anchoMm / 2 - LADO_QR_GEOMETRIA_MM / 2,
-    g.altoMm - MARGEN_BORDE_MM - LADO_QR_GEOMETRIA_MM - 4,
-    LADO_QR_GEOMETRIA_MM,
-    LADO_QR_GEOMETRIA_MM,
-  );
-
-  // Ya no se dibuja el recuadro del área utilizable: sugería un límite que no
-  // existe, porque el escaneo recorta la hoja entera y no ese rectángulo.
-  if (numerar) {
+  // "ARRIBA" y "ABAJO" al centro de cada borde. Los cuatro marcadores se ven
+  // iguales a simple vista, así que sin esto no hay cómo saber de qué lado
+  // entra la hoja en la bandeja al imprimir el reverso. Antes ese papel lo
+  // hacía el QR de geometría, que iba siempre abajo al centro.
+  const etiqueta = (texto: string, y: number) => {
     doc.setFontSize(8);
     doc.setTextColor(150);
-    doc.text(`${pagina}`, g.anchoMm / 2, g.altoMm - 4, { align: "center" });
+    doc.text(texto, g.anchoMm / 2, y, { align: "center" });
     doc.setTextColor(0);
-  }
+  };
+  // Con el anillado arriba, ese margen es la zona de la perforación: la
+  // etiqueta va por debajo para no caer sobre los agujeros.
+  etiqueta("ARRIBA", (g.ladoAnillado === "arriba" ? g.margenAnilladoMm : 0) + 5);
+  // El número de página va en la misma línea que "ABAJO" y no aparte: abajo al
+  // centro hay lugar para un texto, no para dos.
+  etiqueta(numerar ? `ABAJO · ${pagina}` : "ABAJO", g.altoMm - 4);
 }
 
 /**
  * PDF de `hojas` páginas numeradas correlativamente, listo para imprimir a una
  * sola cara.
  *
- * Todas son frentes: si se imprime a una cara, cada página cae en una hoja
- * distinta y ninguna es el reverso de otra.
+ * Aplica `geometriaDePagina` igual que la versión dúplex, aunque acá cada
+ * página caiga en una hoja física distinta. No es un descuido: el escaneo
+ * deduce la cara del número de página y nada más, así que la regla tiene que
+ * valer siempre. El precio es que, imprimiendo a una cara, las hojas pares
+ * llevan el margen de anillado del otro borde — se ve a simple vista, que es
+ * mucho mejor que un recorte corrido en silencio.
  */
 export async function generarPlantilla(
   g: GeometriaPlantilla,
@@ -282,7 +314,7 @@ export async function generarPlantilla(
   const doc = nuevoDocumento(g);
   for (let i = 0; i < hojas; i++) {
     if (i > 0) doc.addPage([g.anchoMm, g.altoMm]);
-    await dibujarHoja(doc, g, desde + i, numerar);
+    await dibujarHoja(doc, geometriaDePagina(g, desde + i), desde + i, numerar);
   }
   return new Uint8Array(doc.output("arraybuffer"));
 }
@@ -305,12 +337,18 @@ export function ordenReverso(paginas: number[], enOrdenInverso: boolean): number
  *
  * Las páginas impares son la cara A y las pares la cara B de la misma hoja
  * física, así que se imprimen en dos pasadas con un volteo en el medio.
+ *
+ * `desde` corre el rango completo para continuar un lote anterior en vez de
+ * reiniciar en 1 (dos plantillas con números repetidos confunden el orden al
+ * escanear). La paridad se sigue mirando sobre el número real, no sobre el
+ * índice, así que frente/reverso quedan bien aunque `desde` sea par.
  */
 export function planDuplexManual(
   totalPaginas: number,
   enOrdenInverso: boolean,
+  desde = 1,
 ): { frente: number[]; reverso: number[] } {
-  const todas = Array.from({ length: totalPaginas }, (_, i) => i + 1);
+  const todas = Array.from({ length: totalPaginas }, (_, i) => desde + i);
   const frente = todas.filter((n) => n % 2 === 1);
   const reverso = todas.filter((n) => n % 2 === 0);
   return { frente, reverso: ordenReverso(reverso, enOrdenInverso) };

@@ -2,8 +2,9 @@
  * Corrección manual de las cuatro esquinas de la hoja.
  *
  * Es el plan B obligatorio, no un extra: la detección por contraste falla con
- * un mantel estampado o un escritorio del mismo color que el papel, y los QR
- * pueden salir movidos. Sin esto, una foto mal detectada no tendría arreglo.
+ * un mantel estampado o un escritorio del mismo color que el papel, y un
+ * marcador estimado puede salir corrido. Sin esto, una foto mal detectada no
+ * tendría arreglo.
  *
  * Las esquinas se guardan siempre en píxeles de la foto original; lo que se
  * dibuja acá está escalado al ancho que tenga el contenedor.

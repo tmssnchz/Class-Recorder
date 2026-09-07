@@ -197,7 +197,6 @@ pub fn run() {
             importar::preparar_inbox,
             escaneo::analizar_foto,
             escaneo::rectificar_foto,
-            escaneo::generar_qr_png,
             escaneo::generar_marcador_png,
             htr::reconocer_texto_local,
             transcripcion::transcribir,
