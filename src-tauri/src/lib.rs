@@ -1,5 +1,6 @@
 mod almacenamiento;
 mod descargas;
+mod energia;
 mod escaneo;
 mod htr;
 mod marcadores;
@@ -188,6 +189,8 @@ pub fn run() {
             descargas::instalar_whisper,
             descargas::instalar_faster_whisper,
             descargas::instalar_llamacpp,
+            energia::evitar_suspension,
+            energia::permitir_suspension,
             respaldo::medir_respaldo,
             respaldo::exportar_respaldo,
             importar::detectar_drive,
