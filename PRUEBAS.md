@@ -163,6 +163,46 @@ abierto y hacer ruido de vez en cuando (contar en voz alta sirve).
 - [ ] **J2.** Abrir el .md: encabezado con clase, unidad, fecha y duración, y
       el cuerpo partido en secciones `### mm:ss` cada 5 minutos.
 
+## Bloque K — Transcripción en paralelo
+
+Es el bloque más largo: hay que grabar unos 6 minutos para que entren al menos
+dos ventanas de dos minutos. Con `Tiny (cuantizado)` cada ventana tarda pocos
+segundos.
+
+- [ ] **K1.** Configuración › Transcripción › activar **Transcribir mientras se
+      graba**. Cerrar y reabrir la app; el interruptor tiene que seguir activado.
+- [ ] **K2.** Grabar en `ZZ Prueba / U1` y hablar (o contar en voz alta) al
+      menos **6 minutos** seguidos.
+      → *Alrededor del minuto 2:15 aparece la barra "Transcribiendo mientras se
+      graba" y el porcentaje empieza a moverse.*
+- [ ] **K3.** Mientras avanza una ventana, cambiar el selector **Clase** a
+      `ZZ Prueba 2`.
+      → *La grabación tiene que moverse de carpeta sin error. Este es el paso
+      que rompe si la transcripción deja el `.part` abierto durante el mover.*
+- [ ] **K4.** Detener y guardar.
+      → *La barra pasa a "Terminando la transcripción de la clase…" y después
+      arranca la conversión a MP3, en ese orden.*
+- [ ] **K5.** Abrir la grabación en la Biblioteca: tiene que mostrar la
+      transcripción **sin haberla encolado a mano**.
+- [ ] **K6.** Leer el texto en los bordes de ventana (minutos 2 y 4): no debe
+      haber frases repetidas ni saltos.
+- [ ] **K7.** Clic en un párrafo de la transcripción para saltar al audio.
+      → *Lo que se escucha tiene que ser lo que dice ese párrafo, también en la
+      segunda mitad de la clase: si los tiempos se corrieron, se nota acá.*
+- [ ] **K8.** Repetir K2 con el motor puesto en **faster-whisper**.
+- [ ] **K9.** Fallo forzado: en Configuración, borrar el modelo del motor
+      activo y grabar 3 minutos.
+      → *Aparece el aviso de que la transcripción en paralelo se detuvo, la
+      grabación sigue hasta el final y al detener la clase entra sola a la cola
+      de transcripción normal. El .webm/.mp3 tiene que estar completo.*
+- [ ] **K10.** Grabar 3 minutos y cerrar la ventana con la X, eligiendo detener
+      y guardar.
+      → *En el Administrador de tareas no debe quedar ningún `whisper-cli.exe`
+      ni `whisper-faster.exe` corriendo después de que la app cerró.*
+- [ ] **K11.** Apagar el interruptor de K1 y grabar 30 segundos.
+      → *No aparece ninguna barra de transcripción y al detener nada se encola
+      solo: el flujo de siempre queda igual.*
+
 ## Limpieza
 
 - [ ] **L1.** Borrar las grabaciones de prueba desde la Biblioteca (con

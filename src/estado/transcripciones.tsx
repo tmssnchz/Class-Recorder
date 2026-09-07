@@ -39,6 +39,7 @@ import {
   transcribirConApi,
 } from "../lib/transcripcionApi";
 import type { Config, Grabacion } from "../types";
+import { useGrabador } from "./grabador";
 import { useStore } from "./store";
 import type { ResultadoTranscripcion } from "../lib/transcripcion";
 
@@ -84,6 +85,7 @@ function opcionesMotor(config: Config): OpcionMotor[] {
 
 export function ProveedorTranscripciones({ children }: { children: ReactNode }) {
   const { config, actualizarConfig, actualizarGrabacion } = useStore();
+  const { pendienteTranscripcion, consumirPendienteTranscripcion } = useGrabador();
   const [tareas, setTareas] = useState<Record<string, TareaTranscripcion>>({});
   const {
     estado: estadoDescarga,
@@ -287,6 +289,16 @@ export function ProveedorTranscripciones({ children }: { children: ReactNode }) 
     bufferMotorRef.current = [];
     setPedidoMotor(null);
   }, []);
+
+  // Red de contención de la transcripción en paralelo: si se rindió a mitad de
+  // la clase, la grabación llega acá para transcribirse entera como siempre.
+  // El grabador no puede encolarla solo porque su proveedor está por encima de
+  // este; por eso pasa por un "pendiente" que se consume una sola vez.
+  useEffect(() => {
+    if (!pendienteTranscripcion) return;
+    encolar(pendienteTranscripcion);
+    consumirPendienteTranscripcion();
+  }, [pendienteTranscripcion, consumirPendienteTranscripcion, encolar]);
 
   const cancelar = useCallback((grabacionId: string) => {
     pendientesRef.current = pendientesRef.current.filter(

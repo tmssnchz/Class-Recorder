@@ -292,6 +292,13 @@ export interface Config {
   idiomaTranscripcion: string;
   /** Cuántas transcripciones corren a la vez. */
   transcripcionesSimultaneas: number;
+  /**
+   * true = mientras la clase se graba, el motor local va transcribiendo el
+   * audio ya escrito en ventanas de pocos minutos, así al detener queda poco o
+   * nada pendiente. Cuesta CPU durante toda la clase y solo usa el motor local
+   * (las APIs siguen transcribiendo después de grabar).
+   */
+  transcripcionParalela: boolean;
   /** Hilos de CPU para whisper. null = decidir según la máquina. */
   hilosWhisper: number | null;
   atajos: Atajos;
@@ -421,6 +428,7 @@ export const CONFIG_POR_DEFECTO: Config = {
   modeloFaster: "fw-small",
   idiomaTranscripcion: "es",
   transcripcionesSimultaneas: 1,
+  transcripcionParalela: false,
   hilosWhisper: null,
   atajos: {
     grabar: "F9",

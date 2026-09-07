@@ -345,6 +345,39 @@ export function GrabarPanel() {
           </div>
         )}
 
+        {g.paralela && (
+          g.paralela.error ? (
+            <div className="aviso aviso-info">
+              <Icono nombre="alerta" />
+              <span>
+                La transcripción en paralelo se detuvo: {g.paralela.error} El
+                audio está intacto y la clase se transcribe entera al terminar.
+              </span>
+            </div>
+          ) : (
+            <div className="conversion">
+              <div className="conversion-texto">
+                <span>
+                  {g.paralela.finalizando
+                    ? "Terminando la transcripción de la clase…"
+                    : `Transcribiendo mientras se graba — ${g.paralela.porcentaje}% (${formatearDuracion(g.paralela.transcritoSeg)} listos)`}
+                </span>
+              </div>
+              <div className="progreso">
+                <div
+                  className="progreso-valor"
+                  style={{
+                    width: g.paralela.finalizando
+                      ? "100%"
+                      : `${g.paralela.porcentaje}%`,
+                    opacity: g.paralela.finalizando ? 0.4 : 1,
+                  }}
+                />
+              </div>
+            </div>
+          )
+        )}
+
         <div className="controles">
           {!activo ? (
             <button

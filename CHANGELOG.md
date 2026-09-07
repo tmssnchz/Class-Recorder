@@ -4,6 +4,41 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Este proyecto todavía no sigue versionado semántico estricto (está en `0.x`,
 así que cualquier versión puede traer cambios incompatibles).
 
+## [0.5.0] - 2026-09-07
+
+### Agregado
+
+- **Escaneo en ráfaga con destino por foto**, para digitalizar un cuaderno
+  viejo con hojas de varios ramos mezcladas sin tener que hacer una tanda por
+  ramo. Cada foto elige su clase y unidad; las consecutivas del mismo destino
+  se juntan solas en el mismo apunte, y "Nuevo apunte" corta en caliente sin
+  perder lo ya confirmado. Un modo integración de sesión fuerza revisar todas
+  las hojas a mano en esa tanda, sin tocar la confirmación automática que usa
+  el resto de los cuadernos.
+- El repaso de hojas pendientes ahora muestra, antes de empezar, el motivo
+  puntual de cada una (marcador no leído, foto movida, sin borde detectado…)
+  en vez de tener que abrirlas de a una para saber por qué quedaron ahí.
+- **Hoja de calibración de una sola página** en la plantilla imprimible, para
+  probar la impresora y medir una hoja real del cuaderno contra la geometría
+  configurada antes de mandar el lote completo.
+- **Transcripción en paralelo a la grabación** (Configuración › Transcripción ›
+  "Transcribir mientras se graba"), apagada por defecto. Con el interruptor
+  activado, el motor local va transcribiendo la clase en tramos de dos minutos
+  a medida que se graban, en vez de esperar a que termine: al detener queda la
+  cola de los últimos minutos y la transcripción está lista casi enseguida.
+  whisper necesita un archivo cerrado y el `.webm.part` sigue creciendo, así
+  que cada tramo se extrae con ffmpeg decodificando desde el principio —más
+  lento que un seek, pero el archivo en curso todavía no tiene el índice que
+  Matroska escribe al cerrar y un seek rápido correría los tiempos—.
+- El costo es CPU durante toda la clase, por eso es opcional. Usa solo el motor
+  local: las APIs de transcripción siguen trabajando después de grabar.
+
+### Corregido
+
+- Nada de esto puede costar audio: si la transcripción en paralelo falla (falta
+  el modelo, el archivo está ocupado, se cierra la app), la grabación sigue
+  intacta y la clase pasa sola a la cola de transcripción de siempre.
+
 ## [0.4.0] - 2026-08-31
 
 ### Agregado
