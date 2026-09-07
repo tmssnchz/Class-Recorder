@@ -46,7 +46,11 @@ export interface AnalisisFoto {
    * plantilla (recorte exacto), por el borde del papel (aproximado), o nada.
    */
   fuente: "marcadores" | "contraste" | "ninguna";
-  /** Sale de los QR. null = hay que elegir el tamaño de papel a mano. */
+  /**
+   * Geometría con la que se calculó el recorte: la del papel configurado en
+   * Ajustes. La hoja no lleva la suya. null cuando se detectó por contraste,
+   * porque ahí las esquinas salen del borde del papel y no de una plantilla.
+   */
   geometria: GeometriaPlantilla | null;
   pagina: number | null;
   nitidez: number;
@@ -56,10 +60,9 @@ export interface AnalisisFoto {
 }
 
 /**
- * `geometriaDefecto` es el papel configurado. Solo se usa si la hoja trae
- * marcadores pero no se pudo leer el código con su geometría: sin un tamaño de
- * papel no hay cómo extrapolar de los centros de los marcadores a las esquinas
- * del papel.
+ * `geometriaDefecto` es el papel configurado, y es la única fuente del tamaño de
+ * hoja: los marcadores solo dicen página y esquina, así que sin él no hay cómo
+ * extrapolar de sus centros a las esquinas del papel.
  */
 export const analizarFoto = (ruta: string, geometriaDefecto: GeometriaPlantilla) =>
   invoke<AnalisisFoto>("analizar_foto", { ruta, geometriaDefecto });
@@ -91,13 +94,6 @@ export const rectificarFoto = (pedido: PedidoRectificar) =>
  */
 export const generarMarcadorPng = (pagina: number, esquina: number, px: number) =>
   invoke<string>("generar_marcador_png", { pagina, esquina, px });
-
-export const generarQrPng = (
-  geometria: GeometriaPlantilla,
-  esquina: number,
-  pagina: number,
-  px: number,
-) => invoke<string>("generar_qr_png", { geometria, esquina, pagina, px });
 
 /**
  * Por debajo de esto la foto está movida. El mismo número que usa el backend;
@@ -225,9 +221,9 @@ export function renumerar(paginas: PaginaApunte[]): PaginaApunte[] {
 }
 
 /**
- * Ordena por el número de página que venía en el QR. Las que no traen QR
- * quedan al final, en el orden en que se escanearon, para que el usuario las
- * acomode a mano.
+ * Ordena por el número de página que traían los marcadores de la hoja. Las que
+ * no traen ninguno quedan al final, en el orden en que se escanearon, para que
+ * el usuario las acomode a mano.
  */
 export function ordenarPorQr(
   paginas: PaginaApunte[],

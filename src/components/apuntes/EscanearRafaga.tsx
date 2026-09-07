@@ -157,8 +157,10 @@ export function EscanearRafaga({
         if (!vigente) return;
         setAnalisis(a);
         setEsquinas(a.esquinas);
-        // La geometría que viene del QR gana sobre la configurada: si el
-        // usuario imprimió A4 y tiene B5 en la config, manda la hoja.
+        // Con marcadores, el backend devuelve la geometría con la que recortó
+        // —la configurada— y se adopta. Cuando no hay (detección por
+        // contraste) se conserva el papel que el usuario haya elegido a mano
+        // para esta tanda.
         if (a.geometria) setGeometria(a.geometria);
       } catch (e) {
         if (vigente) setError(e instanceof Error ? e.message : String(e));
@@ -450,7 +452,7 @@ export function EscanearRafaga({
             <Icono nombre={analisis.fuente === "marcadores" ? "check" : "alerta"} />
             <span>
               {analisis.fuente === "marcadores" &&
-                `Marcadores leídos: hoja ${analisis.pagina} de una plantilla de ${analisis.geometria?.anchoMm} × ${analisis.geometria?.altoMm} mm.`}
+                `Marcadores leídos: hoja ${analisis.pagina}. Recortada con el papel configurado (${analisis.geometria?.anchoMm} × ${analisis.geometria?.altoMm} mm).`}
               {analisis.fuente === "contraste" &&
                 "Sin marcadores: los bordes se detectaron por contraste. Revisa las esquinas antes de confirmar."}
               {analisis.fuente === "ninguna" &&
@@ -563,8 +565,9 @@ export function EscanearRafaga({
           )}
 
           <div className="rafaga-controles">
-            {/* Sin QR no se puede saber el tamaño de papel mirando la foto:
-                lo elige el usuario y queda para las siguientes de la tanda. */}
+            {/* Sin marcadores no se sabe si la foto es de una hoja de la
+                plantilla: lo elige el usuario y queda para las siguientes de
+                la tanda. */}
             {analisis.fuente !== "marcadores" && (
               <label className="selector-fila">
                 <span>Tamaño de papel</span>

@@ -1,19 +1,21 @@
 //! Digitalización de apuntes escritos a mano: detección de la hoja dentro de
 //! la foto, corrección de perspectiva y limpieza tipo "escaneado".
 //!
-//! Todo se hace con crates de Rust puro (`image`, `imageproc`, `rqrr`,
-//! `qrcode`), sin OpenCV ni un servicio de Python aparte. La razón es la misma
-//! por la que whisper.cpp se distribuye como .exe descargable y no como una
-//! instalación de Python: el instalador tiene que seguir pesando pocos MB y la
-//! app tiene que funcionar sin dependencias externas del sistema.
+//! Todo se hace con crates de Rust puro (`image`, `imageproc`), sin OpenCV ni
+//! un servicio de Python aparte. La razón es la misma por la que whisper.cpp se
+//! distribuye como .exe descargable y no como una instalación de Python: el
+//! instalador tiene que seguir pesando pocos MB y la app tiene que funcionar
+//! sin dependencias externas del sistema.
 //!
 //! Hay dos modos de detección:
-//!   - Con los cuatro QR de la plantilla imprimible: se leen sus centros y se
-//!     sabe de antemano en qué milímetro de la hoja está cada uno, así que la
-//!     homografía sale exacta aunque los QR no formen un rectángulo simétrico
-//!     (el margen de anillado corre dos de ellos hacia adentro).
-//!   - Sin QR: por contraste hoja/fondo. Es más frágil, y por eso la interfaz
-//!     siempre deja corregir las cuatro esquinas a mano.
+//!   - Con los cuatro marcadores ArUco de la plantilla imprimible: se leen sus
+//!     centros y se sabe de antemano en qué milímetro de la hoja está cada uno,
+//!     así que la homografía sale exacta aunque no formen un rectángulo
+//!     simétrico (el margen de anillado corre dos de ellos hacia adentro). El
+//!     tamaño de papel sale siempre del configurado en Ajustes, y de qué cara
+//!     es la hoja se deduce del número de página: ver `geometria_de_pagina`.
+//!   - Sin marcadores: por contraste hoja/fondo. Es más frágil, y por eso la
+//!     interfaz siempre deja corregir las cuatro esquinas a mano.
 
 use std::path::Path;
 
@@ -37,8 +39,8 @@ pub enum LadoAnillado {
 }
 
 /// Geometría de una plantilla imprimible. Los tamaños de papel no están
-/// hardcodeados en ningún lado: viajan dentro del propio QR, así que agregar
-/// A5 o cualquier otro formato no toca este archivo.
+/// hardcodeados en ningún lado: vienen del papel configurado en Ajustes, así
+/// que agregar A5 o cualquier otro formato no toca este archivo.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeometriaPlantilla {
@@ -48,40 +50,29 @@ pub struct GeometriaPlantilla {
     pub lado_anillado: LadoAnillado,
 }
 
-/// Lado del cuadrado impreso de cada QR, zona de silencio incluida.
+/// Espacio que la plantilla le reserva a cada marcador de esquina, zona de
+/// silencio incluida. De acá salen los centros.
 ///
-/// Son 14 mm y no 10 por una razón medida: un QR de versión 1 son 21 módulos
-/// más 4 de zona de silencio por lado, o sea 29 módulos de ancho impreso. A
-/// 10 mm cada módulo mide 0,34 mm, y en la parte baja de una foto sacada en
-/// ángulo esos módulos caen a ~2 píxeles: el lector encuentra el código pero
-/// la corrección de errores no alcanza y falla el decodificado. A 14 mm cada
-/// módulo mide 0,48 mm y sobra margen incluso en la esquina más escorzada.
-///
-/// ponytail: si alguna vez hay que achicarlo, la salida no es bajar este
-/// número sino sacar la zona de silencio del PNG y apoyarse en el papel
-/// blanco de alrededor.
+/// Conserva el nombre y los 14 mm de cuando el marcador era un QR: las hojas ya
+/// impresas tienen los centros en estos milímetros y no se pueden mover sin
+/// reimprimirlas todas.
 pub const LADO_QR_MM: f32 = 14.0;
-/// Separación entre el borde del papel y el borde del QR.
+/// Separación entre el borde del papel y el borde del marcador.
 pub const MARGEN_BORDE_MM: f32 = 8.0;
 
 /// Lado del cuadrado de tinta que se imprime de verdad.
 ///
 /// Es menor que `LADO_QR_MM` porque la zona de silencio no se imprime: el papel
-/// de alrededor ya es blanco y cumple exactamente esa función. Los 21 módulos
-/// de datos en 10 mm miden 0,476 mm cada uno, prácticamente lo mismo que los 29
-/// módulos (datos + silencio) en 14 mm. O sea: el marcador se ve un 29% más
-/// chico sin perder nada de legibilidad.
-///
-/// `LADO_QR_MM` sigue siendo 14 a propósito: es el espacio que la plantilla
-/// reserva, y de él salen los centros. Separarlo del tamaño impreso permite
-/// achicar la tinta sin mover ni un milímetro la geometría, así que las hojas
-/// ya impresas se siguen leyendo igual.
+/// de alrededor ya es blanco y cumple exactamente esa función. Separarlo del
+/// espacio reservado permite achicar la tinta sin mover ni un milímetro la
+/// geometría, así que las hojas ya impresas se siguen leyendo igual.
 // Lo consume el generador de la plantilla desde TypeScript, no el backend.
 #[allow(dead_code)]
 pub const LADO_QR_IMPRESO_MM: f32 = 10.0;
 
 impl GeometriaPlantilla {
-    /// Centro de cada QR en milímetros, en el orden fijo que usa toda la app:
+    /// Centro de cada marcador en milímetros, en el orden fijo que usa toda la
+    /// app:
     /// 0 = superior izquierda, 1 = superior derecha, 2 = inferior derecha,
     /// 3 = inferior izquierda.
     ///
@@ -100,27 +91,44 @@ impl GeometriaPlantilla {
 
         [(izq, arr), (der, arr), (der, aba), (izq, aba)]
     }
+
+    /// Geometría de la cara de atrás de la misma hoja física.
+    ///
+    /// Los agujeros del anillado están en un borde del papel, no de la cara: al
+    /// dar vuelta la hoja pasan al borde opuesto, y con ellos el margen. Si el
+    /// reverso se imprimiera con la misma geometría que el frente, dos de los
+    /// marcadores caerían justo encima de la perforación.
+    ///
+    /// Con el anillado arriba no cambia nada: el volteo del dúplex manual es
+    /// sobre el eje vertical, que deja el borde superior donde estaba.
+    fn cara_reverso(self) -> Self {
+        let lado = match self.lado_anillado {
+            LadoAnillado::Izquierda => LadoAnillado::Derecha,
+            LadoAnillado::Derecha => LadoAnillado::Izquierda,
+            LadoAnillado::Arriba => LadoAnillado::Arriba,
+        };
+        Self { lado_anillado: lado, ..self }
+    }
 }
 
-// ------------------------------------------------------------- payload QR
-
-/// Contenido de cada QR de la plantilla. Corto a propósito: a 10 mm impresos,
-/// un QR de versión baja se lee desde mucho más lejos y con peor foco.
+/// Geometría que le toca a una página según su número.
 ///
-/// Formato: `CR1:176X250:L18:0:7`
-///   CR1      versión del formato
-///   176X250  ancho x alto del papel en mm
-///   L18      lado del anillado (L/R/T) y su margen en mm
-///   0        índice de esquina (0..3)
-///   7        número de página impreso en la hoja
+/// **Invariante de toda la app**: la plantilla numera correlativamente las dos
+/// caras de cada hoja física, así que las páginas impares son el frente y las
+/// pares el reverso. Es la misma regla que `geometriaDePagina` en TypeScript, y
+/// tiene que seguir siéndolo: los marcadores del reverso están corridos por el
+/// margen de anillado del otro lado, y si acá se usara la geometría del frente
+/// el recorte saldría corrido ese mismo margen entero —sin dar ningún error—.
 ///
-/// Todo en mayúsculas y sin caracteres raros a propósito: así entra en el modo
-/// alfanumérico del QR, que es el más compacto para este contenido.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct MarcaQr {
-    pub geometria: GeometriaPlantilla,
-    pub esquina: usize,
-    pub pagina: u32,
+/// Antes esto no hacía falta porque cada cara llevaba su propio lado de
+/// anillado dentro del QR de geometría. Al sacar ese QR, la única forma de
+/// saber por qué cara va una foto es el número de página del marcador.
+pub fn geometria_de_pagina(g: GeometriaPlantilla, pagina: u32) -> GeometriaPlantilla {
+    if pagina % 2 == 0 {
+        g.cara_reverso()
+    } else {
+        g
+    }
 }
 
 /// Nombre de cada esquina en el orden fijo 0..3, para poder decir cuál falló
@@ -131,69 +139,6 @@ pub const NOMBRES_ESQUINA: [&str; 4] = [
     "inferior derecha",
     "inferior izquierda",
 ];
-
-fn letra_lado(lado: LadoAnillado) -> char {
-    match lado {
-        LadoAnillado::Izquierda => 'L',
-        LadoAnillado::Derecha => 'R',
-        LadoAnillado::Arriba => 'T',
-    }
-}
-
-pub fn formatear_marca(m: &MarcaQr) -> String {
-    let g = m.geometria;
-    format!(
-        "CR1:{}X{}:{}{}:{}:{}",
-        redondear(g.ancho_mm),
-        redondear(g.alto_mm),
-        letra_lado(g.lado_anillado),
-        redondear(g.margen_anillado_mm),
-        m.esquina,
-        m.pagina
-    )
-}
-
-/// Sin decimales cuando son enteros: `176` en vez de `176.0`, para que el QR
-/// quede lo más corto posible.
-fn redondear(v: f32) -> String {
-    if (v - v.round()).abs() < 0.05 {
-        format!("{}", v.round() as i64)
-    } else {
-        format!("{v:.1}")
-    }
-}
-
-pub fn parsear_marca(texto: &str) -> Option<MarcaQr> {
-    let mut partes = texto.split(':');
-    if partes.next()? != "CR1" {
-        return None;
-    }
-    let (ancho, alto) = partes.next()?.split_once('X')?;
-    let anillado = partes.next()?;
-    let esquina: usize = partes.next()?.parse().ok()?;
-    let pagina: u32 = partes.next()?.parse().ok()?;
-    if esquina > 3 {
-        return None;
-    }
-
-    let lado = match anillado.chars().next()? {
-        'L' => LadoAnillado::Izquierda,
-        'R' => LadoAnillado::Derecha,
-        'T' => LadoAnillado::Arriba,
-        _ => return None,
-    };
-
-    Some(MarcaQr {
-        geometria: GeometriaPlantilla {
-            ancho_mm: ancho.parse().ok()?,
-            alto_mm: alto.parse().ok()?,
-            margen_anillado_mm: anillado[1..].parse().ok()?,
-            lado_anillado: lado,
-        },
-        esquina,
-        pagina,
-    })
-}
 
 // -------------------------------------------------------------- análisis
 
@@ -226,8 +171,10 @@ pub struct AnalisisFoto {
     ///   "contraste"  el borde del papel, sin plantilla — aproximado
     ///   "ninguna"    no se encontró nada; las esquinas van a mano
     pub fuente: String,
-    /// Geometría leída de los QR. null cuando se detectó por contraste: ahí
-    /// el tamaño de papel lo tiene que elegir el usuario.
+    /// Geometría con la que se calculó el recorte: la del papel configurado en
+    /// Ajustes. null cuando se detectó por contraste, porque ahí las esquinas
+    /// salen del borde del papel y no de ninguna plantilla — el tamaño lo
+    /// termina de elegir el usuario.
     pub geometria: Option<GeometriaPlantilla>,
     pub pagina: Option<u32>,
     /// Varianza del laplaciano: bajo = foto movida o desenfocada.
@@ -290,205 +237,10 @@ fn brillo_de(gris: &GrayImage) -> f32 {
     (suma / n) as f32
 }
 
-// ----------------------------------------------------- detección con QR
+// ----------------------------------------------- detección con marcadores
 
-struct QrLeido {
-    marca: MarcaQr,
-    centro: (f32, f32),
-}
-
-/// Una sola pasada del lector sobre la imagen que se le dé.
-///
-/// `escala` es cuánto se encogió esa imagen respecto de la foto original: los
-/// centros se devuelven siempre en coordenadas de la foto, no de la copia.
-fn detectar_qrs(gris: &GrayImage, escala: f32) -> Vec<QrLeido> {
-    let mut preparada = rqrr::PreparedImage::prepare(gris.clone());
-    let mut salida = Vec::new();
-    for grid in preparada.detect_grids() {
-        let Ok((_, texto)) = grid.decode() else { continue };
-        let Some(marca) = parsear_marca(&texto) else { continue };
-        // El centroide de las cuatro esquinas no depende de en qué rotación
-        // rqrr haya devuelto los bounds, que es justo lo que necesitamos.
-        let cx = grid.bounds.iter().map(|p| p.x as f32).sum::<f32>() / 4.0;
-        let cy = grid.bounds.iter().map(|p| p.y as f32).sum::<f32>() / 4.0;
-        salida.push(QrLeido {
-            marca,
-            centro: (cx / escala, cy / escala),
-        });
-    }
-    salida
-}
-
-/// Lee los marcadores probando varias versiones de la imagen hasta juntar los
-/// cuatro.
-///
-/// Con una sola pasada sobre la foto cruda no alcanza, y está medido: en una
-/// hoja impresa en gris claro y con un gradiente de luz de un lado a otro,
-/// rqrr encuentra las cuatro cuadrículas pero la corrección de errores falla
-/// en tres de ellas. Las dos pasadas extra atacan cada causa por separado:
-///
-///   1. cruda       — lo más rápido, y suele bastar con buena luz
-///   2. binarizada  — umbral adaptativo con ventana chica. Es la que salva las
-///                    impresiones claras: decide blanco/negro comparando cada
-///                    píxel con sus vecinos inmediatos, así que no le importa
-///                    que la tinta sea gris mientras haya contraste local
-///   3. normalizada — divide por el fondo con un radio grande; arregla la
-///                    iluminación despareja a escala de hoja
-///   4. a media     — promedia la textura del papel, que a resolución completa
-///      resolución    mete ruido dentro de cada módulo
-///
-/// Se corta apenas hay cuatro: cada pasada extra solo se paga cuando hace falta.
-///
-/// El orden importa y está medido. La normalización por división de fondo usa
-/// un radio proporcional a la hoja (~150 px en una foto de 12 MP), parecido al
-/// tamaño del propio marcador: el fondo se estima con el QR adentro y termina
-/// aplanándolo. Por eso el umbral adaptativo, que trabaja con una ventana
-/// mucho más chica, va antes.
-fn leer_qrs(gris: &GrayImage) -> Vec<QrLeido> {
-    // Por índice de esquina: el primero que se lea gana. Todas las pasadas
-    // miran la misma hoja, así que da igual cuál lo encontró.
-    let mut por_esquina: [Option<QrLeido>; 4] = [None, None, None, None];
-
-    let mut juntar = |leidos: Vec<QrLeido>| {
-        for qr in leidos {
-            let i = qr.marca.esquina;
-            if i < 4 && por_esquina[i].is_none() {
-                por_esquina[i] = Some(qr);
-            }
-        }
-        por_esquina.iter().filter(|e| e.is_some()).count()
-    };
-
-    if juntar(detectar_qrs(gris, 1.0)) == 4 {
-        return por_esquina.into_iter().flatten().collect();
-    }
-
-    // El umbral adaptativo va sobre la mitad de resolución: a tamaño completo
-    // son 12 millones de píxeles y tarda minutos, mientras que un marcador de
-    // ~140 px sigue teniendo 3 píxeles por módulo a la mitad — de sobra para
-    // decodificar, y de paso se promedia el ruido del papel.
-    let media = image::imageops::resize(
-        gris,
-        gris.width() / 2,
-        gris.height() / 2,
-        image::imageops::FilterType::Triangle,
-    );
-    // Ventana chica, del orden de dos módulos impresos: lo bastante local como
-    // para que un QR gris sobre papel blanco quede en blanco y negro limpio.
-    // delta 6 deja el ruido del papel del lado del blanco.
-    let radio = (media.width().max(media.height()) / 160).clamp(6, 24);
-    let binarizada = imageproc::contrast::adaptive_threshold(&media, radio, 6);
-    if juntar(detectar_qrs(&binarizada, 0.5)) == 4 {
-        return por_esquina.into_iter().flatten().collect();
-    }
-
-    let normalizada = limpiar_escaneo(gris.clone());
-    if juntar(detectar_qrs(&normalizada, 1.0)) < 4 {
-        let media = image::imageops::resize(
-            &normalizada,
-            gris.width() / 2,
-            gris.height() / 2,
-            image::imageops::FilterType::Triangle,
-        );
-        juntar(detectar_qrs(&media, 0.5));
-    }
-
-    por_esquina.into_iter().flatten().collect()
-}
-
-/// Completa el cuarto marcador cuando solo se leyeron tres.
-///
-/// Los cuatro centros forman un rectángulo en milímetros — el margen de
-/// anillado corre un lado entero, no una esquina suelta — así que bajo una
-/// aproximación afín el que falta es la esquina opuesta del paralelogramo.
-///
-/// ponytail: es afín, no proyectivo. Con la foto sacada de frente el error es
-/// de pocos píxeles; con la cámara muy inclinada se nota, y por eso quien lo
-/// usa avisa en la interfaz y deja las esquinas para corregir a mano. La
-/// alternativa (resolver la homografía con tres puntos) no existe: hacen falta
-/// cuatro.
-fn completar_cuarto(por_esquina: &mut [Option<QrLeido>; 4]) -> Option<usize> {
-    let faltante = por_esquina.iter().position(|e| e.is_none())?;
-    if por_esquina.iter().filter(|e| e.is_some()).count() != 3 {
-        return None;
-    }
-
-    // En orden cíclico TL, TR, BR, BL: el opuesto es la suma de los vecinos
-    // menos el de enfrente.
-    let vecino_a = por_esquina[(faltante + 1) % 4].as_ref().unwrap();
-    let opuesto = por_esquina[(faltante + 2) % 4].as_ref().unwrap();
-    let vecino_b = por_esquina[(faltante + 3) % 4].as_ref().unwrap();
-
-    let centro = (
-        vecino_a.centro.0 + vecino_b.centro.0 - opuesto.centro.0,
-        vecino_a.centro.1 + vecino_b.centro.1 - opuesto.centro.1,
-    );
-    let marca = MarcaQr {
-        esquina: faltante,
-        ..vecino_a.marca
-    };
-    por_esquina[faltante] = Some(QrLeido { marca, centro });
-    Some(faltante)
-}
-
-/// Contraste local de los marcadores que se ven en la foto, aunque no se hayan
-/// podido decodificar.
-///
-/// Es la única forma de distinguir dos fallas que en pantalla se ven igual: "no
-/// hay marcadores en la foto" y "los marcadores están ahí pero la impresión
-/// salió tan clara que no se leen". La segunda tiene arreglo del lado del
-/// usuario, así que vale la pena medirla y decirla.
-///
-/// Nota: se mide contraste, no brillo. El color del papel no importa —
-/// amarillento, reciclado o blanco puro desplazan la tinta y el papel juntos.
-/// Lo que decide es cuánto se despega la tinta de lo que tiene al lado.
-fn contraste_de_marcadores(gris: &GrayImage) -> Option<(usize, u8)> {
-    let mut preparada = rqrr::PreparedImage::prepare(gris.clone());
-    let cuadriculas = preparada.detect_grids();
-    if cuadriculas.is_empty() {
-        return None;
-    }
-
-    let mut contrastes = Vec::new();
-    for g in &cuadriculas {
-        let xs: Vec<i32> = g.bounds.iter().map(|p| p.x).collect();
-        let ys: Vec<i32> = g.bounds.iter().map(|p| p.y).collect();
-        let (x0, x1) = (*xs.iter().min()? as u32, *xs.iter().max()? as u32);
-        let (y0, y1) = (*ys.iter().min()? as u32, *ys.iter().max()? as u32);
-        if x1 <= x0 || y1 <= y0 {
-            continue;
-        }
-
-        let mut valores: Vec<u8> = Vec::new();
-        for y in y0..y1.min(gris.height()) {
-            for x in x0..x1.min(gris.width()) {
-                valores.push(gris.get_pixel(x, y)[0]);
-            }
-        }
-        if valores.len() < 100 {
-            continue;
-        }
-        valores.sort_unstable();
-        // Percentil 10 = la tinta, percentil 90 = el papel de alrededor.
-        let tinta = valores[valores.len() / 10] as i32;
-        let papel = valores[valores.len() * 9 / 10] as i32;
-        contrastes.push((papel - tinta).max(0) as u32);
-    }
-
-    if contrastes.is_empty() {
-        return None;
-    }
-    let medio = (contrastes.iter().sum::<u32>() / contrastes.len() as u32) as u8;
-    Some((cuadriculas.len(), medio))
-}
-
-/// Debajo de este contraste la impresión está demasiado clara y la corrección
-/// de errores del QR deja de dar. Medido sobre hojas reales: una impresión sana
-/// da 150-220, y a 125-155 ya falla la mitad de los marcadores.
-pub const CONTRASTE_MINIMO: u8 = 150;
-
-/// Igual que `agrupar_por_pagina` pero para los marcadores ArUco de las
-/// esquinas, que son la fuente principal desde que se migró.
+/// Reduce los marcadores leídos a los de una sola página y los ordena por
+/// esquina.
 ///
 /// Devuelve los cuatro centros en orden de esquina, qué esquina se estimó (si
 /// alguna) y el número de página.
@@ -507,9 +259,14 @@ fn agrupar_marcadores(
             }
         }
 
-        // Mismo truco que con los QR: los cuatro centros forman un rectángulo
-        // en milímetros, así que el que falta es la esquina opuesta del
-        // paralelogramo. Ver `completar_cuarto`.
+        // Los cuatro centros forman un rectángulo en milímetros —el margen de
+        // anillado corre un lado entero, no una esquina suelta— así que bajo
+        // una aproximación afín el que falta es la esquina opuesta del
+        // paralelogramo.
+        //
+        // ponytail: es afín, no proyectivo. Con la foto de frente el error es
+        // de pocos píxeles; con la cámara muy inclinada se nota, y por eso se
+        // avisa en la interfaz y quedan las esquinas para corregir a mano.
         let faltante = por_esquina.iter().position(|e| e.is_none());
         let estimado = match faltante {
             Some(i) if por_esquina.iter().filter(|e| e.is_some()).count() == 3 => {
@@ -534,8 +291,8 @@ fn agrupar_marcadores(
     None
 }
 
-/// Esquinas del papel a partir de los centros de los marcadores, que están en
-/// las mismas posiciones en milímetros que ocupaban los QR.
+/// Esquinas del papel a partir de los centros de los marcadores: se extiende
+/// la homografía mm → píxeles a los cuatro vértices reales de la hoja.
 fn esquinas_desde_centros(
     centros: &[(f32, f32); 4],
     geometria: GeometriaPlantilla,
@@ -548,63 +305,6 @@ fn esquinas_desde_centros(
         esquinas[i] = Esquina { x, y };
     }
     Some(esquinas)
-}
-
-/// Reduce los QR leídos a los de una sola página y los ordena por esquina.
-///
-/// Devuelve también cuál marcador se estimó en vez de leerse (si alguno), y
-/// cuántas páginas distintas se vieron — para poder avisar cuando el usuario
-/// fotografió el cuaderno abierto en dos hojas.
-fn agrupar_por_pagina(qrs: Vec<QrLeido>) -> (Option<([QrLeido; 4], Option<usize>)>, usize) {
-    let mut paginas: Vec<u32> = qrs.iter().map(|q| q.marca.pagina).collect();
-    paginas.sort_unstable();
-    paginas.dedup();
-    let cantidad = paginas.len();
-
-    // Se queda con la página que tenga las cuatro esquinas; si hay varias
-    // completas, la primera por número.
-    for pagina in &paginas {
-        let mut por_esquina: [Option<QrLeido>; 4] = [None, None, None, None];
-        for q in qrs.iter() {
-            if q.marca.pagina == *pagina {
-                por_esquina[q.marca.esquina] = Some(QrLeido {
-                    marca: q.marca,
-                    centro: q.centro,
-                });
-            }
-        }
-        let estimado = completar_cuarto(&mut por_esquina);
-        if por_esquina.iter().all(|e| e.is_some()) {
-            let [a, b, c, d] = por_esquina;
-            return (
-                Some((
-                    [a.unwrap(), b.unwrap(), c.unwrap(), d.unwrap()],
-                    estimado,
-                )),
-                cantidad,
-            );
-        }
-    }
-    (None, cantidad)
-}
-
-/// Esquinas del papel a partir de los centros de los QR: se extiende la
-/// homografía mm → píxeles a los cuatro vértices reales de la hoja.
-fn esquinas_desde_qrs(qrs: &[QrLeido; 4]) -> Option<([Esquina; 4], GeometriaPlantilla, u32)> {
-    let geometria = qrs[0].marca.geometria;
-    let centros_mm = geometria.centros_qr_mm();
-    let centros_px = [qrs[0].centro, qrs[1].centro, qrs[2].centro, qrs[3].centro];
-
-    let mm_a_px = Projection::from_control_points(centros_mm, centros_px)?;
-    let (w, h) = (geometria.ancho_mm, geometria.alto_mm);
-    let vertices = [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)];
-
-    let mut esquinas = [Esquina { x: 0.0, y: 0.0 }; 4];
-    for (i, v) in vertices.iter().enumerate() {
-        let (x, y) = mm_a_px * *v;
-        esquinas[i] = Esquina { x, y };
-    }
-    Some((esquinas, geometria, qrs[0].marca.pagina))
 }
 
 // ------------------------------------------------ detección por contraste
@@ -709,10 +409,11 @@ fn extremos(p: &[Point<i32>]) -> Option<[(f32, f32); 4]> {
 
 // ---------------------------------------------------------- comando: análisis
 
-/// `geometria_defecto` es el papel configurado en la app. Se usa solo cuando la
-/// hoja trae marcadores pero no se pudo leer el QR con su geometría: sin algún
-/// tamaño de papel no hay forma de extrapolar de los centros de los marcadores
-/// a las esquinas del papel.
+/// `geometria_defecto` es el papel configurado en la app, y es la única fuente
+/// del tamaño de hoja: los marcadores solo dicen página y esquina, así que sin
+/// él no hay forma de extrapolar de los centros a las esquinas del papel. Se le
+/// aplica `geometria_de_pagina` con el número que traen los marcadores, para
+/// que el reverso de una hoja se recorte con el anillado del lado que le toca.
 #[tauri::command]
 pub async fn analizar_foto(
     ruta: String,
@@ -783,73 +484,30 @@ fn analizar(ruta: &str, geometria_defecto: GeometriaPlantilla) -> Result<Analisi
         );
     }
 
-    // Los marcadores ArUco de las esquinas son la fuente principal. El QR ya no
-    // va en las esquinas: queda uno solo, abajo al centro, con la geometría del
-    // papel, que un id de diccionario no puede transportar.
+    // Los marcadores ArUco de las esquinas son la única fuente de detección.
+    // El tamaño de papel no viaja en la hoja: sale siempre del configurado en
+    // Ajustes. La hoja no lo autodescribe, y ese es el trade-off aceptado — si
+    // alguna vez se cambia de papel, las hojas viejas se recortarían con la
+    // geometría nueva.
     let marcadores = marcadores::leer_marcadores(&gris);
-    let grupo_aruco = agrupar_marcadores(&marcadores);
 
-    // Los QR solo se leen si hacen falta: para la geometría siempre, y como
-    // respaldo de las esquinas en las hojas impresas antes de la migración.
-    // La lectura multipasada cuesta segundos, así que no se paga de más.
-    let leidos = leer_qrs(&gris);
-    // Copia para poder decir después cuáles esquinas faltaron: `leidos` se
-    // consume al agrupar por página.
-    let copias: Vec<QrLeido> = leidos
-        .iter()
-        .map(|q| QrLeido { marca: q.marca, centro: q.centro })
-        .collect();
-    // Aunque no estén los cuatro, con uno solo ya se sabe el tamaño de papel y
-    // el número de página: se aprovecha para no preguntárselos al usuario.
-    let parcial = leidos.first().map(|q| (q.marca.geometria, q.marca.pagina));
-    let cuantos = leidos.len();
-
-    let (grupo, hojas) = agrupar_por_pagina(leidos);
+    // Cuántas hojas distintas se ven: fotografiar el cuaderno abierto entra
+    // dos páginas a la vez y solo se puede procesar una.
+    let mut paginas_vistas: Vec<u32> = marcadores.iter().map(|m| m.pagina).collect();
+    paginas_vistas.sort_unstable();
+    paginas_vistas.dedup();
+    let hojas = paginas_vistas.len();
     if hojas > 1 {
         advertencias.push(format!(
             "Se ven {hojas} hojas distintas en la misma foto. Se va a procesar una sola: para las dos, fotografíalas por separado."
         ));
     }
 
-    if let Some((centros, estimado, pagina_aruco)) = grupo_aruco {
-        // La geometría del papel sale del QR de abajo. Si no se pudo leer se
-        // usa la configurada y se avisa: el recorte va a salir bien igual salvo
-        // que el usuario haya cambiado de papel sin actualizar la config.
-        let leida = parcial.map(|(g, _)| g);
-        if leida.is_none() {
-            advertencias.push(
-                "Se leyeron las esquinas pero no el código con el tamaño de papel. Se usó el papel configurado: revisa que el recorte tenga la proporción correcta."
-                    .to_string(),
-            );
-        }
-        let g = leida.unwrap_or(geometria_defecto);
-        {
-            if let Some(esquinas) = esquinas_desde_centros(&centros, g) {
-                if let Some(i) = estimado {
-                    advertencias.push(format!(
-                        "No se pudo leer el marcador de la esquina {}. Se estimó a partir de los otros tres, así que el recorte puede estar unos milímetros corrido: revísalo antes de confirmar.",
-                        NOMBRES_ESQUINA[i]
-                    ));
-                }
-                return Ok(AnalisisFoto {
-                    ancho,
-                    alto,
-                    vista_previa,
-                    esquinas: esquinas.to_vec(),
-                    fuente: "marcadores".into(),
-                    geometria: Some(g),
-                    pagina: Some(pagina_aruco),
-                    nitidez,
-                    brillo,
-                    hojas_detectadas: hojas.max(1),
-                    advertencias,
-                });
-            }
-        }
-    }
-
-    if let Some((qrs, estimado)) = grupo {
-        if let Some((esquinas, geometria, pagina)) = esquinas_desde_qrs(&qrs) {
+    if let Some((centros, estimado, pagina)) = agrupar_marcadores(&marcadores) {
+        // La cara importa: en el reverso el margen de anillado está del borde
+        // opuesto y los marcadores corridos con él.
+        let g = geometria_de_pagina(geometria_defecto, pagina);
+        if let Some(esquinas) = esquinas_desde_centros(&centros, g) {
             if let Some(i) = estimado {
                 advertencias.push(format!(
                     "No se pudo leer el marcador de la esquina {}. Se estimó a partir de los otros tres, así que el recorte puede estar unos milímetros corrido: revísalo antes de confirmar. Suele pasar cuando esa esquina quedó con sombra, curvada por el anillado, o impresa muy clara.",
@@ -862,7 +520,7 @@ fn analizar(ruta: &str, geometria_defecto: GeometriaPlantilla) -> Result<Analisi
                 vista_previa,
                 esquinas: esquinas.to_vec(),
                 fuente: "marcadores".into(),
-                geometria: Some(geometria),
+                geometria: Some(g),
                 pagina: Some(pagina),
                 nitidez,
                 brillo,
@@ -872,25 +530,22 @@ fn analizar(ruta: &str, geometria_defecto: GeometriaPlantilla) -> Result<Analisi
         }
     }
 
-    if let Some((vistos, contraste)) = contraste_de_marcadores(&gris) {
-        if vistos > cuantos && contraste < CONTRASTE_MINIMO {
-            advertencias.push(format!(
-                "Se ven {vistos} marcadores en la foto pero solo se pudieron leer {cuantos}: la impresión salió demasiado clara (contraste medido {contraste} sobre 255; una impresión sana da más de {CONTRASTE_MINIMO}). Reimprime la plantilla con la impresora en calidad normal, sin modo borrador ni ahorro de tinta. El color del papel no influye: lo que falta es que la tinta se despegue del papel que tiene al lado."
-            ));
-        }
-    }
-
-    if cuantos > 0 {
+    // Se vieron marcadores pero no alcanzaron para armar una hoja: decir
+    // cuáles faltaron ayuda a repetir la foto, un "2 de 4" no.
+    if !marcadores.is_empty() {
         let mut vistas = [false; 4];
-        for q in &copias {
-            vistas[q.marca.esquina] = true;
+        for m in &marcadores {
+            if m.esquina < 4 {
+                vistas[m.esquina] = true;
+            }
         }
         let faltantes: Vec<&str> = (0..4)
             .filter(|i| !vistas[*i])
             .map(|i| NOMBRES_ESQUINA[i])
             .collect();
         advertencias.push(format!(
-            "Solo se leyeron {cuantos} de los 4 marcadores: faltaron los de la esquina {}. El recorte se hizo por el borde del papel, así que revísalo antes de guardar.",
+            "Solo se leyeron {} de los 4 marcadores: faltaron los de la esquina {}. El recorte se hizo por el borde del papel, así que revísalo antes de guardar. Suele pasar cuando esa esquina quedó con sombra, curvada por el anillado, o impresa muy clara.",
+            4 - faltantes.len(),
             faltantes.join(" y la ")
         ));
     }
@@ -902,8 +557,8 @@ fn analizar(ruta: &str, geometria_defecto: GeometriaPlantilla) -> Result<Analisi
             vista_previa,
             esquinas: esquinas.to_vec(),
             fuente: "contraste".into(),
-            geometria: parcial.map(|(g, _)| g),
-            pagina: parcial.map(|(_, p)| p),
+            geometria: None,
+            pagina: None,
             nitidez,
             brillo,
             hojas_detectadas: hojas.max(1),
@@ -926,8 +581,8 @@ fn analizar(ruta: &str, geometria_defecto: GeometriaPlantilla) -> Result<Analisi
                     Esquina { x: 0.0, y: alto as f32 },
                 ],
                 fuente: "ninguna".into(),
-                geometria: parcial.map(|(g, _)| g),
-                pagina: parcial.map(|(_, p)| p),
+                geometria: None,
+                pagina: None,
                 nitidez,
                 brillo,
                 hojas_detectadas: hojas.max(1),
@@ -1185,29 +840,8 @@ fn percentil(img: &GrayImage, fraccion: f32) -> u8 {
     0
 }
 
-// ------------------------------------------------------- comando: generar QR
+// ------------------------------------------------ comando: generar marcador
 
-/// Devuelve el PNG del QR de una esquina, en base64, listo para incrustarlo en
-/// el PDF de la plantilla desde el frontend.
-#[tauri::command]
-pub fn generar_qr_png(
-    geometria: GeometriaPlantilla,
-    esquina: usize,
-    pagina: u32,
-    px: u32,
-) -> Result<String, String> {
-    // Sin zona de silencio: la hoja blanca de alrededor ya la provee.
-    let img = imagen_qr(geometria, esquina, pagina, px, 0)?;
-    let mut png = Vec::new();
-    DynamicImage::ImageLuma8(img)
-        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
-        .map_err(|e| format!("No se pudo codificar el QR: {e}"))?;
-    Ok(base64(&png))
-}
-
-/// `borde` son los módulos de zona de silencio que se dibujan dentro del PNG.
-/// Cero para imprimir (el papel la aporta), cuatro para incrustarlo sobre algo
-/// que no sea blanco.
 /// PNG en base64 del marcador ArUco de una esquina, para la plantilla.
 #[tauri::command]
 pub fn generar_marcador_png(pagina: u32, esquina: usize, px: u32) -> Result<String, String> {
@@ -1226,59 +860,6 @@ pub fn generar_marcador_png(pagina: u32, esquina: usize, px: u32) -> Result<Stri
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .map_err(|e| format!("No se pudo codificar el marcador: {e}"))?;
     Ok(base64(&png))
-}
-
-fn imagen_qr(
-    geometria: GeometriaPlantilla,
-    esquina: usize,
-    pagina: u32,
-    px: u32,
-    borde: u32,
-) -> Result<GrayImage, String> {
-    let texto = formatear_marca(&MarcaQr {
-        geometria,
-        esquina,
-        pagina,
-    });
-    // Nivel Q (25% de corrección), no M, y eso fuerza una versión 2 de 25
-    // módulos en vez de una versión 1 de 21. Suena peor y es al revés: está
-    // medido en `experimento_ecc_contra_impresion_clara`.
-    //
-    // La razón es que la versión 1 es la única que **no tiene patrón de
-    // alineación**. Sin él, el lector arma la cuadrícula de módulos apoyándose
-    // solo en los tres patrones de esquina, y cualquier desenfoque de cámara o
-    // perspectiva la corre: los bits salen mal y falla la corrección de
-    // errores. En la simulación, la versión 1 no decodifica ni con impresión
-    // sana a 6 píxeles por módulo, mientras que la versión 2 con Q decodifica
-    // en todos los casos, incluso con tinta clara a 3 píxeles por módulo.
-    //
-    // O sea: el marcador "más simple" era justamente el más frágil. Cuatro
-    // módulos más y un patrón de alineación cuestan 0 mm de papel — el
-    // cuadrado impreso sigue midiendo `LADO_QR_IMPRESO_MM`.
-    let codigo = qrcode::QrCode::with_error_correction_level(&texto, qrcode::EcLevel::Q)
-        .map_err(|e| format!("No se pudo generar el QR: {e}"))?;
-
-    let modulos = codigo.width() as u32;
-    let colores = codigo.to_colors();
-    let total = modulos + borde * 2;
-    let escala = (px / total).max(1);
-    let lado = total * escala;
-
-    let mut img: GrayImage = ImageBuffer::from_pixel(lado, lado, Luma([255u8]));
-    for (i, color) in colores.iter().enumerate() {
-        if *color != qrcode::Color::Dark {
-            continue;
-        }
-        let mx = (i as u32 % modulos + borde) * escala;
-        let my = (i as u32 / modulos + borde) * escala;
-        for y in my..my + escala {
-            for x in mx..mx + escala {
-                img.put_pixel(x, y, Luma([0u8]));
-            }
-        }
-    }
-
-    Ok(img)
 }
 
 /// Base64 estándar. Son veinte líneas contra una dependencia más: ni el PNG de
@@ -1338,19 +919,10 @@ mod tests {
         assert_ne!(c[0].0, 176.0 - c[1].0);
     }
 
-    #[test]
-    fn el_payload_del_qr_va_y_vuelve() {
-        let m = MarcaQr { geometria: B5, esquina: 2, pagina: 7 };
-        let texto = formatear_marca(&m);
-        assert_eq!(texto, "CR1:176X250:L18:2:7");
-        assert_eq!(parsear_marca(&texto), Some(m));
-        assert_eq!(parsear_marca("basura"), None);
-        assert_eq!(parsear_marca("CR1:176X250:L18:9:7"), None);
-    }
-
     /// La prueba que importa: se toma una hoja ideal, se la deforma como si
     /// fuera una foto sacada en ángulo, y se comprueba que la homografía
-    /// calculada desde los centros de los QR devuelve las esquinas del papel.
+    /// calculada desde los centros de los marcadores devuelve las esquinas del
+    /// papel.
     #[test]
     fn la_homografia_recupera_las_esquinas_de_una_foto_en_angulo() {
         let centros_mm = B5.centros_qr_mm();
@@ -1360,15 +932,10 @@ mod tests {
         )
         .expect("los cuatro puntos forman un cuadrilátero");
 
-        let qrs: [QrLeido; 4] = std::array::from_fn(|i| QrLeido {
-            marca: MarcaQr { geometria: B5, esquina: i, pagina: 3 },
-            centro: falsa_camara * centros_mm[i],
-        });
+        let centros: [(f32, f32); 4] = std::array::from_fn(|i| falsa_camara * centros_mm[i]);
 
-        let (esquinas, geometria, pagina) =
-            esquinas_desde_qrs(&qrs).expect("se puede resolver la homografía");
-        assert_eq!(geometria, B5);
-        assert_eq!(pagina, 3);
+        let esquinas =
+            esquinas_desde_centros(&centros, B5).expect("se puede resolver la homografía");
 
         let esperadas = [(120.0, 90.0), (1480.0, 210.0), (1390.0, 1850.0), (240.0, 1700.0)];
         for (e, (ex, ey)) in esquinas.iter().zip(esperadas) {
@@ -1540,25 +1107,46 @@ mod tests {
         }
     }
 
-    /// Cierra el círculo del QR: se genera el PNG de una esquina, se decodifica
-    /// y se comprueba que rqrr vuelve a leer exactamente el mismo payload.
+    /// El reverso de una hoja tiene el margen de anillado del borde opuesto, y
+    /// con él los marcadores corridos. Si el recorte usara la geometría del
+    /// frente, saldría corrido ese margen entero sin dar ningún error — que es
+    /// justo lo que pasaba cuando el lado de anillado dejó de viajar en la hoja.
     #[test]
-    fn el_qr_generado_se_puede_volver_a_leer() {
-        // Con zona de silencio: acá el PNG se decodifica suelto, sin papel alrededor.
-        let img = imagen_qr(B5, 1, 12, 400, 4).expect("se genera el QR");
-        let mut png = Vec::new();
-        DynamicImage::ImageLuma8(img)
-            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
-            .expect("se codifica");
-        let b64 = base64(&png);
-        let bytes = decodificar_base64(&b64);
-        let img = image::load_from_memory(&bytes).expect("es un PNG válido");
+    fn el_reverso_se_recorta_con_el_anillado_del_otro_lado() {
+        // Página par: reverso. Los marcadores se imprimen ahí.
+        let reverso = geometria_de_pagina(B5, 6);
+        assert_eq!(reverso.lado_anillado, LadoAnillado::Derecha);
+        assert_eq!(geometria_de_pagina(B5, 5).lado_anillado, LadoAnillado::Izquierda);
 
-        let mut preparada = rqrr::PreparedImage::prepare(img.to_luma8());
-        let grids = preparada.detect_grids();
-        assert_eq!(grids.len(), 1, "debería verse un solo QR");
-        let (_, texto) = grids[0].decode().expect("se decodifica");
-        assert_eq!(texto, "CR1:176X250:L18:1:12");
+        let esperadas = [(150.0f32, 110.0f32), (1510.0, 240.0), (1420.0, 1880.0), (260.0, 1720.0)];
+        let camara = Projection::from_control_points(
+            [(0.0, 0.0), (176.0, 0.0), (176.0, 250.0), (0.0, 250.0)],
+            esperadas,
+        )
+        .expect("los cuatro puntos forman un cuadrilátero");
+
+        let centros_mm = reverso.centros_qr_mm();
+        let centros: [(f32, f32); 4] = std::array::from_fn(|i| camara * centros_mm[i]);
+
+        // Con la geometría de la cara, las esquinas del papel salen exactas.
+        let bien = esquinas_desde_centros(&centros, reverso).expect("se resuelve");
+        for (e, (ex, ey)) in bien.iter().zip(esperadas) {
+            assert!(
+                (e.x - ex).abs() < 1.0 && (e.y - ey).abs() < 1.0,
+                "esquina ({}, {}) debería ser ({ex}, {ey})",
+                e.x,
+                e.y
+            );
+        }
+
+        // Y con la del frente sale corrida de lejos: si esta parte deja de
+        // fallar, el test ya no protege nada.
+        let mal = esquinas_desde_centros(&centros, B5).expect("se resuelve igual");
+        let corrimiento = (mal[0].x - bien[0].x).hypot(mal[0].y - bien[0].y);
+        assert!(
+            corrimiento > 100.0,
+            "usar la cara equivocada debería correr el recorte, corrió {corrimiento:.0} px"
+        );
     }
 
     /// Prototipo de la tubería completa, sin necesitar una foto real: se arma
@@ -1578,7 +1166,7 @@ mod tests {
             (B5.alto_mm * px_mm).round() as u32,
         );
 
-        // 1. La hoja impresa: papel blanco, cuatro QR y unos renglones.
+        // 1. La hoja impresa: papel blanco, cuatro marcadores y unos renglones.
         let mut hoja: GrayImage = ImageBuffer::from_pixel(pw, ph, Luma([250u8]));
         // Cuatro marcadores ArUco en las esquinas, como la plantilla real.
         let lado_marcador = (marcadores::LADO_MM * px_mm) as u32;
@@ -1589,16 +1177,6 @@ mod tests {
             let y0 = (cy * px_mm) as i64 - m.height() as i64 / 2;
             image::imageops::overlay(&mut hoja, &m, x0, y0);
         }
-        // Y el QR de geometría abajo al centro.
-        let lado_qr = (12.0 * px_mm) as u32;
-        let qr = imagen_qr(B5, 0, 5, lado_qr, 4).expect("se genera el QR");
-        image::imageops::overlay(
-            &mut hoja,
-            &qr,
-            ((B5.ancho_mm / 2.0) * px_mm) as i64 - qr.width() as i64 / 2,
-            ((B5.alto_mm - MARGEN_BORDE_MM - 12.0 - 4.0) * px_mm) as i64,
-        );
-
         // La hoja recién impresa tiene que ser legible antes de fotografiarla:
         // si esto falla, el problema es la plantilla y no la cámara.
         assert_eq!(
@@ -1606,7 +1184,6 @@ mod tests {
             4,
             "los marcadores de la plantilla no se leen"
         );
-        assert_eq!(leer_qrs(&hoja).len(), 1, "el QR de geometría no se lee");
         for renglon in 0..12 {
             let y = ph / 4 + renglon * 40;
             for x in pw / 5..pw * 4 / 5 {
@@ -1617,8 +1194,8 @@ mod tests {
         }
 
         // 2. La "foto": la hoja en ángulo sobre un fondo oscuro.
-        // Resolución de una foto de celular real (12 MP): con menos, los QR de
-        // 10 mm no llegan a tener suficientes píxeles por módulo.
+        // Resolución de una foto de celular real (12 MP): con menos, los
+        // marcadores de 10 mm no llegan a tener suficientes píxeles por celda.
         let (fw, fh) = (4000u32, 3000u32);
         let esquinas_reales = [
             (600.0f32, 240.0f32),
@@ -1680,8 +1257,6 @@ mod tests {
         assert_eq!((info.ancho, info.alto), (pw, ph));
         assert!(info.bytes > 0, "el JPEG quedó vacío");
 
-        // El escaneo tiene que salir derecho: los QR se vuelven a leer y ahora
-        // caen en los milímetros exactos donde se los imprimió.
         let escaneada = image::open(&crudo).expect("se abre el escaneo").to_luma8();
         // Los marcadores se releen sobre el escaneo y ahora caen en los
         // milímetros exactos donde se los imprimió. Es la comprobación de que
@@ -1729,28 +1304,14 @@ mod tests {
         println!("nitidez {:.1} (minimo {NITIDEZ_MINIMA})", nitidez_de(&gris));
         println!("brillo  {:.1}", brillo_de(&gris));
 
-        let mut preparada = rqrr::PreparedImage::prepare(gris.clone());
-        let grids = preparada.detect_grids();
-        println!("cuadriculas QR encontradas: {}", grids.len());
-        for g in &grids {
-            let lado = ((g.bounds[1].x - g.bounds[0].x) as f32)
-                .hypot((g.bounds[1].y - g.bounds[0].y) as f32);
-            print!(
-                "  lado ~{lado:.0} px  centro ({:.0}, {:.0})  ",
-                g.bounds.iter().map(|p| p.x as f32).sum::<f32>() / 4.0,
-                g.bounds.iter().map(|p| p.y as f32).sum::<f32>() / 4.0
+        let leidos = marcadores::leer_marcadores(&gris);
+        println!("marcadores encontrados: {}", leidos.len());
+        for m in &leidos {
+            println!(
+                "  pagina {} esquina {} en ({:.0}, {:.0})",
+                m.pagina, NOMBRES_ESQUINA[m.esquina], m.centro.0, m.centro.1
             );
-            match g.decode() {
-                Ok((_, texto)) => println!("-> {texto:?}"),
-                Err(e) => println!("-> NO DECODIFICA: {e:?}"),
-            }
         }
-
-        let leidos = leer_qrs(&gris);
-        println!(
-            "tras las tres pasadas se leyeron las esquinas: {:?}",
-            leidos.iter().map(|q| NOMBRES_ESQUINA[q.marca.esquina]).collect::<Vec<_>>()
-        );
 
         let analisis = analizar(&ruta, B5).expect("se analiza");
         println!("fuente: {}", analisis.fuente);
@@ -1759,76 +1320,6 @@ mod tests {
         println!("esquinas: {:?}", analisis.esquinas);
         for a in &analisis.advertencias {
             println!("aviso: {a}");
-        }
-    }
-
-    /// Experimento: ¿qué combinación de payload y corrección de errores
-    /// sobrevive a una impresión clara como la que salió de la impresora real?
-    ///
-    /// Se simula lo medido en las fotos de verdad: tinta ~55 y papel ~200 (en
-    /// vez de 15 y 240), desenfoque de cámara, y distintos píxeles por módulo.
-    /// Correr con:
-    ///   cargo test experimento_ecc -- --ignored --nocapture
-    #[test]
-    #[ignore]
-    fn experimento_ecc_contra_impresion_clara() {
-        use qrcode::{EcLevel, QrCode};
-
-        // Igual de largo que los payloads reales, sin depender del formateador.
-        let largo = "CR1:173X250:L18:0:3"; // 19 caracteres: geometría completa
-        let corto = "CR1:0:3"; //             7 caracteres: solo esquina y página
-
-        println!("payload            ECC  ver  modulos  px/mod  contraste  decodifica");
-        for (nombre, texto) in [("largo(19)", largo), ("corto(7) ", corto)] {
-            for (ecc, en) in [
-                (EcLevel::L, "L"),
-                (EcLevel::M, "M"),
-                (EcLevel::Q, "Q"),
-                (EcLevel::H, "H"),
-            ] {
-                let Ok(codigo) = QrCode::with_error_correction_level(texto, ecc) else {
-                    println!("{nombre}          {en}   -    no entra");
-                    continue;
-                };
-                let modulos = codigo.width() as u32;
-                let colores = codigo.to_colors();
-
-                for px_mod in [3u32, 4, 5, 6] {
-                    for (tinta, papel, etiqueta) in
-                        [(55u8, 200u8, "malo(145)"), (15u8, 240u8, "sano(225)")]
-                    {
-                        let borde = 4u32;
-                        let lado = (modulos + borde * 2) * px_mod;
-                        let mut img: GrayImage = ImageBuffer::from_pixel(lado, lado, Luma([papel]));
-                        for (i, c) in colores.iter().enumerate() {
-                            if *c != qrcode::Color::Dark {
-                                continue;
-                            }
-                            let mx = (i as u32 % modulos + borde) * px_mod;
-                            let my = (i as u32 / modulos + borde) * px_mod;
-                            for y in my..my + px_mod {
-                                for x in mx..mx + px_mod {
-                                    img.put_pixel(x, y, Luma([tinta]));
-                                }
-                            }
-                        }
-                        // Desenfoque de cámara: es lo que come los bordes de
-                        // cada módulo y convierte poco contraste en bits malos.
-                        let img = imageproc::filter::gaussian_blur_f32(&img, 0.8);
-
-                        let mut prep = rqrr::PreparedImage::prepare(img);
-                        let ok = prep
-                            .detect_grids()
-                            .iter()
-                            .any(|g| g.decode().map(|(_, t)| t == texto).unwrap_or(false));
-                        let version = (modulos - 17) / 4;
-                        println!(
-                            "{nombre}          {en}   {version}    {modulos:>2}      {px_mod}      {etiqueta}   {}",
-                            if ok { "SI" } else { "no" }
-                        );
-                    }
-                }
-            }
         }
     }
 
@@ -1857,6 +1348,27 @@ mod tests {
         })
         .expect("se rectifica");
         println!("escaneo {}x{} en {}", info.ancho, info.alto, info.archivo);
+    }
+
+    /// El PNG que se le manda al generador de la plantilla tiene que llegar
+    /// entero: se codifica en base64 como en producción, se decodifica y se
+    /// vuelve a leer el marcador.
+    #[test]
+    fn el_marcador_viaja_entero_en_base64() {
+        let b64 = generar_marcador_png(5, 2, 140).expect("se genera el PNG");
+        let bytes = decodificar_base64(&b64);
+        let img = image::load_from_memory(&bytes).expect("es un PNG válido");
+
+        // Con papel alrededor: el detector busca el contorno del marco negro.
+        let margen = 30u32;
+        let marcador = img.to_luma8();
+        let lado = marcador.width() + margen * 2;
+        let mut hoja: GrayImage = ImageBuffer::from_pixel(lado, lado, Luma([250u8]));
+        image::imageops::overlay(&mut hoja, &marcador, margen as i64, margen as i64);
+
+        let leidos = marcadores::leer_marcadores(&hoja);
+        assert_eq!(leidos.len(), 1, "debería verse un marcador");
+        assert_eq!((leidos[0].pagina, leidos[0].esquina), (5, 2));
     }
 
     fn decodificar_base64(s: &str) -> Vec<u8> {

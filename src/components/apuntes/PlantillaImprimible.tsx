@@ -1,5 +1,5 @@
 /**
- * Generador de la plantilla imprimible con los cuatro marcadores QR.
+ * Generador de la plantilla imprimible con los cuatro marcadores ArUco.
  *
  * La plantilla es opcional: sin ella el escaneo funciona igual, detectando el
  * borde de la hoja por contraste. Con ella el recorte sale exacto y la app
@@ -25,6 +25,7 @@ import {
   papelDe,
   planDuplexManual,
   problemaDeGeometria,
+  problemaDeNumeracion,
   LADOS,
   PAPELES,
   PAPEL_PERSONALIZADO,
@@ -88,13 +89,16 @@ export function PlantillaImprimible() {
   const info = UNIDADES.find((u) => u.id === unidad) ?? UNIDADES[0];
   const papelActual = papelDe(g);
   const problema = problemaDeGeometria(g);
+  // Cada hoja gasta dos números cuando se imprime por las dos caras.
+  const problemaNumeros = problemaDeNumeracion(desde, duplex ? hojas * 2 : hojas);
+  const noSePuede = problema !== null || problemaNumeros !== null;
   const plan = planDuplexManual(hojas * 2, config.apuntes.reversoEnOrdenInverso, desde);
 
   return (
     <div className="tarjeta">
       <h3>Plantilla imprimible</h3>
       <p className="sutil">
-        Hojas con cuatro marcadores QR en las esquinas. No son obligatorias: sin
+        Hojas con cuatro marcadores en las esquinas. No son obligatorias: sin
         ellas el escaneo detecta el borde del papel por contraste, que anda bien
         pero falla más seguido con fondos claros o poca luz.
       </p>
@@ -229,9 +233,9 @@ export function PlantillaImprimible() {
       )}
 
       <p className="sutil">
-        En ese margen no se imprime nada, así que los cuatro QR no forman un
-        rectángulo simétrico. Es a propósito: la app usa las cuatro posiciones
-        reales para corregir la perspectiva.
+        En ese margen no se imprime nada, así que los cuatro marcadores no
+        forman un rectángulo simétrico. Es a propósito: la app usa las cuatro
+        posiciones reales para corregir la perspectiva.
       </p>
 
       <p className="sutil">
@@ -242,13 +246,22 @@ export function PlantillaImprimible() {
         <strong>
           {g.anchoMm} × {g.altoMm} mm
         </strong>
-        , y así viaja dentro del QR.
+        . La hoja no lleva su tamaño impreso: al escanear se usa siempre el
+        papel que esté configurado acá, así que si lo cambias, las hojas ya
+        impresas se van a recortar con las medidas nuevas.
       </p>
 
       {problema && (
         <div className="aviso aviso-error">
           <Icono nombre="alerta" />
           <span>{problema}</span>
+        </div>
+      )}
+
+      {problemaNumeros && (
+        <div className="aviso aviso-error">
+          <Icono nombre="alerta" />
+          <span>{problemaNumeros}</span>
         </div>
       )}
 
@@ -265,6 +278,8 @@ export function PlantillaImprimible() {
           imprimir cuarenta.
         </span>
       </div>
+      {/* Siempre imprime la página 1, así que el tope de numeración no le
+          aplica: solo la frena una geometría impracticable. */}
       <button
         className="btn"
         disabled={generando || problema !== null}
@@ -284,7 +299,10 @@ export function PlantillaImprimible() {
           checked={config.apuntes.numeroDePagina}
           onChange={(e) => void actualizarConfig({ apuntes: { numeroDePagina: e.target.checked } })}
         />
-        <span>Imprimir el número de página (solo el texto visible; no afecta al QR/ArUco)</span>
+        <span>
+          Imprimir el número de página (solo el texto visible; no afecta a los
+          marcadores)
+        </span>
       </label>
 
       <label className="selector-fila">
@@ -295,7 +313,7 @@ export function PlantillaImprimible() {
       {!duplex && (
         <button
           className="btn btn-primario"
-          disabled={generando || problema !== null}
+          disabled={generando || noSePuede}
           onClick={() =>
             void guardar(`plantilla-${papelActual?.id ?? "personalizado"}-${hojas}hojas.pdf`, () =>
               generarPlantilla(g, hojas, config.apuntes.numeroDePagina, desde),
@@ -334,7 +352,7 @@ export function PlantillaImprimible() {
             <li>
               <button
                 className="btn"
-                disabled={generando || problema !== null}
+                disabled={generando || noSePuede}
                 onClick={() =>
                   void guardar("prueba-cara-A-y-B.pdf", () => generarHojaDePrueba(g))
                 }
@@ -352,7 +370,7 @@ export function PlantillaImprimible() {
             <li>
               <button
                 className="btn btn-primario"
-                disabled={generando || problema !== null}
+                disabled={generando || noSePuede}
                 onClick={() =>
                   void guardar(`plantilla-frente-${hojas}hojas.pdf`, () =>
                     generarTanda(g, plan.frente, config.apuntes.numeroDePagina),
@@ -371,7 +389,7 @@ export function PlantillaImprimible() {
             <li>
               <button
                 className="btn btn-primario"
-                disabled={generando || problema !== null}
+                disabled={generando || noSePuede}
                 onClick={() =>
                   void guardar(`plantilla-reverso-${hojas}hojas.pdf`, () =>
                     generarTanda(g, plan.reverso, config.apuntes.numeroDePagina),
