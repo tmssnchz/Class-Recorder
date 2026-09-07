@@ -21,6 +21,7 @@ import {
   carpetaLibre,
   digitalizarFoto,
   ordenarPorQr,
+  renumerar,
   type AnalisisFoto,
   type Esquina,
 } from "../../lib/escaneo";
@@ -107,6 +108,13 @@ export function EscanearRafaga({
   // sin tocar la config general (que sigue confirmando sola en un cuaderno
   // nuevo). Es de sesión, no se guarda.
   const [modoIntegracion, setModoIntegracion] = useState(false);
+
+  // El número que trae el marcador se puede repetir entre lotes de plantilla
+  // distintos (dos hojas "página 5" de tandas de impresión separadas): ahí
+  // ordenar por ese número mezcla mal. Esta opción vuelve al orden en que se
+  // sacaron las fotos, que es siempre correcto para un cuaderno escaneado en
+  // el orden real de sus hojas.
+  const [ignorarNumeros, setIgnorarNumeros] = useState(false);
 
   // Apuntes que va juntando esta tanda. Empieza con uno solo, con el destino
   // que traía la cola de fotos — el caso simple (cuaderno nuevo) nunca crea
@@ -301,7 +309,7 @@ export function EscanearRafaga({
       listos.map((b) => {
         const c = datos.clases.find((x) => x.id === b.claseId) ?? null;
         const u = c?.unidades.find((x) => x.id === b.unidadId) ?? null;
-        const paginas = ordenarPorQr(b.paginas, b.numerosQr);
+        const paginas = ignorarNumeros ? renumerar(b.paginas) : ordenarPorQr(b.paginas, b.numerosQr);
         const apunte: Apunte = {
           id: crypto.randomUUID(),
           titulo: b.titulo,
@@ -321,7 +329,7 @@ export function EscanearRafaga({
         return { apunte, paginas };
       }),
     );
-  }, [bloques, config.apuntes.idioma, datos.clases, orden.length, pendientes, indice, onTerminar]);
+  }, [bloques, config.apuntes.idioma, datos.clases, ignorarNumeros, orden.length, pendientes, indice, onTerminar]);
 
   const abrirFormNuevo = () => {
     const c = claseDeDestino;
@@ -381,6 +389,17 @@ export function EscanearRafaga({
             onChange={(e) => setModoIntegracion(e.target.checked)}
           />
           <span>Modo integración</span>
+        </label>
+        <label
+          className="selector-fila"
+          title="Usa el orden en que se sacaron las fotos en vez del número leído del marcador. Sirve cuando dos tandas de plantilla impresas por separado repiten números."
+        >
+          <input
+            type="checkbox"
+            checked={ignorarNumeros}
+            onChange={(e) => setIgnorarNumeros(e.target.checked)}
+          />
+          <span>Ignorar números de página</span>
         </label>
         <button className="btn" onClick={onCancelar} disabled={guardando}>
           Cancelar

@@ -42,6 +42,9 @@ export function PlantillaImprimible() {
   // vuelve a tocar.
   const [unidad, setUnidad] = useState<Unidad>("mm");
   const [hojas, setHojas] = useState(20);
+  // Para continuar un lote anterior sin repetir números: dos hojas con el
+  // mismo número confunden el orden al escanear (ver ordenarPorQr).
+  const [desde, setDesde] = useState(1);
   const [duplex, setDuplex] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nota, setNota] = useState<string | null>(null);
@@ -85,7 +88,7 @@ export function PlantillaImprimible() {
   const info = UNIDADES.find((u) => u.id === unidad) ?? UNIDADES[0];
   const papelActual = papelDe(g);
   const problema = problemaDeGeometria(g);
-  const plan = planDuplexManual(hojas * 2, config.apuntes.reversoEnOrdenInverso);
+  const plan = planDuplexManual(hojas * 2, config.apuntes.reversoEnOrdenInverso, desde);
 
   return (
     <div className="tarjeta">
@@ -206,7 +209,24 @@ export function PlantillaImprimible() {
             onChange={(e) => setHojas(Math.max(1, Number(e.target.value) || 1))}
           />
         </label>
+
+        <label>
+          <span>Empezar en la página</span>
+          <input
+            type="number"
+            min={1}
+            value={desde}
+            onChange={(e) => setDesde(Math.max(1, Number(e.target.value) || 1))}
+          />
+        </label>
       </div>
+
+      {desde > 1 && (
+        <p className="sutil">
+          Va a continuar desde la página {desde}: para un lote que ya imprimió
+          hasta la página {desde - 1}, sin repetir números.
+        </p>
+      )}
 
       <p className="sutil">
         En ese margen no se imprime nada, así que los cuatro QR no forman un
@@ -259,6 +279,15 @@ export function PlantillaImprimible() {
       </button>
 
       <label className="selector-fila">
+        <input
+          type="checkbox"
+          checked={config.apuntes.numeroDePagina}
+          onChange={(e) => void actualizarConfig({ apuntes: { numeroDePagina: e.target.checked } })}
+        />
+        <span>Imprimir el número de página (solo el texto visible; no afecta al QR/ArUco)</span>
+      </label>
+
+      <label className="selector-fila">
         <input type="checkbox" checked={duplex} onChange={(e) => setDuplex(e.target.checked)} />
         <span>Imprimir por las dos caras con una impresora sin dúplex automático</span>
       </label>
@@ -269,7 +298,7 @@ export function PlantillaImprimible() {
           disabled={generando || problema !== null}
           onClick={() =>
             void guardar(`plantilla-${papelActual?.id ?? "personalizado"}-${hojas}hojas.pdf`, () =>
-              generarPlantilla(g, hojas, config.apuntes.numeroDePagina),
+              generarPlantilla(g, hojas, config.apuntes.numeroDePagina, desde),
             )
           }
         >

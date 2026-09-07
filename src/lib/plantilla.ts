@@ -305,12 +305,18 @@ export function ordenReverso(paginas: number[], enOrdenInverso: boolean): number
  *
  * Las páginas impares son la cara A y las pares la cara B de la misma hoja
  * física, así que se imprimen en dos pasadas con un volteo en el medio.
+ *
+ * `desde` corre el rango completo para continuar un lote anterior en vez de
+ * reiniciar en 1 (dos plantillas con números repetidos confunden el orden al
+ * escanear). La paridad se sigue mirando sobre el número real, no sobre el
+ * índice, así que frente/reverso quedan bien aunque `desde` sea par.
  */
 export function planDuplexManual(
   totalPaginas: number,
   enOrdenInverso: boolean,
+  desde = 1,
 ): { frente: number[]; reverso: number[] } {
-  const todas = Array.from({ length: totalPaginas }, (_, i) => i + 1);
+  const todas = Array.from({ length: totalPaginas }, (_, i) => desde + i);
   const frente = todas.filter((n) => n % 2 === 1);
   const reverso = todas.filter((n) => n % 2 === 0);
   return { frente, reverso: ordenReverso(reverso, enOrdenInverso) };
