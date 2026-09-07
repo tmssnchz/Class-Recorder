@@ -1,6 +1,6 @@
 [package]
 name = "class-recorder"
-version = "0.6.0"
+version = "0.7.0"
 description = "Grabador, organizador y transcriptor de clases universitarias"
 authors = ["Tomas"]
 edition = "2021"
@@ -68,6 +68,7 @@ windows = { version = "0.61", features = [
   "Win32_Storage_FileSystem",
   "Win32_Foundation",
   "Win32_Security_Cryptography",
+  "Win32_System_Power",
 ] }
 
 [profile.release]

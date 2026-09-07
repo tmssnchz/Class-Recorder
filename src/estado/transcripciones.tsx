@@ -15,6 +15,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 import { ModalDescargaNube } from "../components/ui/ModalDescargaNube";
@@ -111,6 +112,13 @@ export function ProveedorTranscripciones({ children }: { children: ReactNode }) 
   useEffect(() => {
     configRef.current = config;
   }, [config]);
+
+  // Mientras haya al menos una tarea en cola (esperando o corriendo), que
+  // Windows no suspenda el equipo: si no, el proceso de whisper muere a mitad
+  // de una transcripción larga dejada corriendo de noche.
+  useEffect(() => {
+    void invoke(Object.keys(tareas).length > 0 ? "evitar_suspension" : "permitir_suspension");
+  }, [tareas]);
 
   const actualizarTarea = useCallback(
     (id: string, cambios: Partial<TareaTranscripcion>) => {
