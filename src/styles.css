@@ -2278,10 +2278,12 @@ mark {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  /* Ocupa el alto del panel: el mesón scrollea solo, la cabecera y el pie
-     quedan fijos. Con 68 hojas, perder el botón de "seguir" al scrollear
-     obligaría a subir cada vez. */
-  height: 100%;
+  /* El mesón scrollea solo; la cabecera y el pie quedan fijos. Con 68 hojas,
+     perder el botón de "seguir" al scrollear obligaría a subir cada vez.
+     Va contra el alto de la ventana y no un 100%: el contenedor `.panel` no
+     tiene altura propia, así que un porcentaje resuelve a `auto` y termina
+     scrolleando la página entera. Los 48 px son el padding de `.contenido`. */
+  height: calc(100vh - 48px);
   min-height: 0;
 }
 
@@ -2404,6 +2406,7 @@ mark {
 }
 
 .organizar-paginas img {
+  -webkit-user-drag: none;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -2460,6 +2463,9 @@ mark {
 }
 
 .organizar-hoja img {
+  /* Sin esto, el navegador arrastra la imagen suelta en vez de la tarjeta y el
+     destino nunca recibe la hoja. */
+  -webkit-user-drag: none;
   display: block;
   width: 100%;
   /* Alto fijo con recorte: una grilla donde cada tarjeta mide distinto es

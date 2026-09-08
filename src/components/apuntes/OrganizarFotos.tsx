@@ -41,6 +41,56 @@ const CONCURRENCIA = 3;
 /** Cuántos apuntes se pueden asignar con las teclas 1-9. */
 const ATAJOS_MAXIMOS = 9;
 
+/**
+ * Dónde se guarda el reparto a medias.
+ *
+ * Repartir una tanda grande son veinte minutos de trabajo del usuario, y vivía
+ * entero en el estado de un componente: bastaba cambiar de pestaña —el panel se
+ * desmonta— para perderlo todo. Guardarlo en `localStorage` lo hace sobrevivir a
+ * eso, a un reinicio de la app y a un cierre accidental.
+ *
+ * Guarda también los análisis, que es lo caro: al volver no se vuelve a mirar
+ * ninguna foto.
+ */
+const CLAVE_SESION = "classrecorder.organizar.v1";
+
+interface SesionGuardada {
+  fotos: string[];
+  grupos: GrupoOrganizado[];
+  /** Map serializado como pares, que es lo que aguanta JSON. */
+  analisis: [string, AnalisisFoto][];
+}
+
+/**
+ * Recupera el reparto guardado, solo si es de esta misma tanda.
+ *
+ * Se compara el conjunto de fotos, no el orden: restaurar grupos que apuntan a
+ * fotos que no están en la selección dejaría apuntes con hojas fantasma.
+ */
+function sesionGuardada(fotos: string[]): SesionGuardada | null {
+  try {
+    const crudo = localStorage.getItem(CLAVE_SESION);
+    if (!crudo) return null;
+    const s = JSON.parse(crudo) as SesionGuardada;
+    if (!Array.isArray(s?.fotos) || s.fotos.length !== fotos.length) return null;
+    const actuales = new Set(fotos);
+    if (!s.fotos.every((f) => actuales.has(f))) return null;
+    return s;
+  } catch {
+    // Un JSON corrupto o el almacenamiento deshabilitado no pueden impedir
+    // organizar: se empieza de cero, que es el comportamiento de siempre.
+    return null;
+  }
+}
+
+function olvidarSesion() {
+  try {
+    localStorage.removeItem(CLAVE_SESION);
+  } catch {
+    // Nada que hacer, y nada que romper.
+  }
+}
+
 interface Props {
   fotos: string[];
   /** Destino que traía la cola, para el primer apunte. */
@@ -65,11 +115,17 @@ export function OrganizarFotos({
   const { datos, config } = useStore();
   const plantilla = config.apuntes.plantilla;
 
-  const [analisis, setAnalisis] = useState<Map<string, AnalisisFoto>>(new Map());
-  const [fallidas, setFallidas] = useState<Map<string, string>>(new Map());
-  const [analizadas, setAnalizadas] = useState(0);
+  // Se lee una sola vez: si el usuario vuelve a esta tanda, retoma donde iba.
+  const [recuperada] = useState(() => sesionGuardada(fotos));
+  const [restaurado, setRestaurado] = useState(recuperada !== null);
 
-  const [grupos, setGrupos] = useState<GrupoOrganizado[]>([]);
+  const [analisis, setAnalisis] = useState<Map<string, AnalisisFoto>>(
+    () => new Map(recuperada?.analisis ?? []),
+  );
+  const [fallidas, setFallidas] = useState<Map<string, string>>(new Map());
+  const [analizadas, setAnalizadas] = useState(() => recuperada?.analisis.length ?? 0);
+
+  const [grupos, setGrupos] = useState<GrupoOrganizado[]>(() => recuperada?.grupos ?? []);
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [ultimoClic, setUltimoClic] = useState<string | null>(null);
   const [zoom, setZoom] = useState<string | null>(null);
@@ -118,12 +174,17 @@ export function OrganizarFotos({
   useEffect(() => {
     let vigente = true;
     let siguiente = 0;
+    // Se congela al arrancar: leer el estado desde el bucle daría un valor
+    // viejo y se re-analizarían fotos ya hechas.
+    const yaAnalizadas = new Set(recuperada?.analisis.map(([ruta]) => ruta) ?? []);
 
     const trabajador = async () => {
       while (vigente) {
         const i = siguiente++;
         if (i >= fotos.length) return;
         const ruta = fotos[i];
+        // Ya venía analizada de la sesión anterior: no se vuelve a mirar.
+        if (yaAnalizadas.has(ruta)) continue;
         try {
           const a = await analizarFoto(ruta, plantilla);
           if (!vigente) return;
@@ -141,7 +202,7 @@ export function OrganizarFotos({
     return () => {
       vigente = false;
     };
-  }, [fotos, plantilla]);
+  }, [fotos, plantilla, recuperada]);
 
   const listo = analizadas >= fotos.length;
 
@@ -157,6 +218,22 @@ export function OrganizarFotos({
   const ordenadas = useMemo(() => ordenDelMeson(utilizables, numeros), [utilizables, numeros]);
   const repetidos = useMemo(() => numerosRepetidos(utilizables, numeros), [utilizables, numeros]);
   const meson = useMemo(() => sinAsignar(ordenadas, grupos), [ordenadas, grupos]);
+
+  // Guarda el reparto en cada cambio. Es barato —unos cientos de kB de JSON—
+  // y es lo que hace que cambiar de pestaña, o cerrar la app sin querer, deje
+  // de costar todo el trabajo hecho.
+  useEffect(() => {
+    if (!listo) return;
+    try {
+      localStorage.setItem(
+        CLAVE_SESION,
+        JSON.stringify({ fotos, grupos, analisis: [...analisis] } satisfies SesionGuardada),
+      );
+    } catch {
+      // Si no se puede guardar —almacenamiento lleno o deshabilitado— se sigue
+      // organizando igual: se pierde la red de seguridad, no la sesión.
+    }
+  }, [analisis, fotos, grupos, listo]);
 
   // ---------------------------------------------------------- selección
 
@@ -316,7 +393,28 @@ export function OrganizarFotos({
           bordes de cada hoja. Esto se hace una sola vez — el recorte de después
           reusa lo que salga de acá.
         </p>
-        {fallidas.size > 0 && (
+        {restaurado && grupos.length > 0 && (
+        <div className="aviso aviso-info">
+          <Icono nombre="check" />
+          <span>
+            Se recuperó el reparto que tenías a medias:{" "}
+            {grupos.reduce((t, g) => t + g.fotos.length, 0)} hojas repartidas en {grupos.length}{" "}
+            {grupos.length === 1 ? "apunte" : "apuntes"}.
+          </span>
+          <button
+            className="btn"
+            onClick={() => {
+              olvidarSesion();
+              cambiar([]);
+              setRestaurado(false);
+            }}
+          >
+            Empezar de nuevo
+          </button>
+        </div>
+      )}
+
+      {fallidas.size > 0 && (
           <p className="sutil">
             {fallidas.size} {fallidas.size === 1 ? "foto no se pudo abrir" : "fotos no se pudieron abrir"}.
           </p>
@@ -500,6 +598,7 @@ export function OrganizarFotos({
                         src={convertFileSrc(analisis.get(f)?.vistaPrevia ?? "")}
                         alt={`Página ${indice + 1}`}
                         loading="lazy"
+                        draggable={false}
                       />
                       <span>{indice + 1}</span>
                     </li>
@@ -537,6 +636,7 @@ export function OrganizarFotos({
                     src={convertFileSrc(a?.vistaPrevia ?? "")}
                     alt={nombreArchivo(f)}
                     loading="lazy"
+                    draggable={false}
                   />
                   <button
                     className="organizar-lupa"
@@ -576,7 +676,10 @@ export function OrganizarFotos({
         </button>
         <button
           className="btn btn-primario"
-          onClick={() => onOrganizado(gruposConFotos, analisis)}
+          onClick={() => {
+            olvidarSesion();
+            onOrganizado(gruposConFotos, analisis);
+          }}
           disabled={meson.length > 0 || gruposConFotos.length === 0}
           title={
             meson.length > 0
