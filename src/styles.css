@@ -752,6 +752,17 @@ kbd {
   }
 }
 
+/* Modo lectura. Ningún visualizador decente deja media pantalla ocupada por la
+   lista mientras estás leyendo: la hoja se queda con todo el ancho y se vuelve
+   con el mismo botón. */
+.biblioteca-layout.en-lectura {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.biblioteca-layout.en-lectura .columna-lista {
+  display: none;
+}
+
 .unidad-columna {
   min-width: 0;
 }
@@ -766,6 +777,21 @@ kbd {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+/* Un número suelto al final de un título se lee como cualquier otra cosa. En
+   pastilla se lee como lo que es: cuántos hay ahí dentro. */
+.cuenta {
+  min-width: 20px;
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--superficie-2);
+  color: var(--texto-sutil);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: center;
 }
 
 .unidad-columna .item strong {
@@ -2212,11 +2238,203 @@ mark {
 }
 
 .apunte-cuerpo .tira-paginas {
-  max-height: 52vh;
+  max-height: var(--alto-lector);
 }
 
 .apunte-cuerpo .tira-paginas .miniatura img {
   height: 70px;
+}
+
+/* Con todo el ancho disponible, las miniaturas pueden dejar de ser sellos. */
+.apunte-cuerpo-ancho {
+  grid-template-columns: 132px minmax(0, 1fr);
+}
+
+.apunte-cuerpo-ancho .tira-paginas .miniatura img {
+  height: 110px;
+}
+
+.lector {
+  --alto-lector: 62vh;
+  min-width: 0;
+}
+
+.apunte-cuerpo-ancho .lector {
+  --alto-lector: 74vh;
+}
+
+.lector-barra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.lector-paginacion,
+.lector-zoom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lector-zoom .btn-mini {
+  min-width: 62px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* El scroll pasa acá dentro, no en la página: al acercarse, los controles de
+   arriba se quedan donde estaban. El fondo oscuro es lo que hace que el ojo
+   agarre el borde del papel. */
+.lector-hoja {
+  height: var(--alto-lector);
+  padding: 12px;
+  overflow: auto;
+  text-align: center;
+  background: #11141a;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+}
+
+/* El lienzo mide lo mismo que la hoja renderizada. Las marcas van adentro en
+   porcentaje, así que siguen a la hoja con cualquier zoom sin recalcular. */
+.lector-lienzo {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+}
+
+.lector-lienzo.marcando {
+  cursor: crosshair;
+}
+
+.lector-hoja img {
+  display: block;
+  width: 100%;
+  max-width: none;
+  height: auto;
+  cursor: zoom-in;
+  border-radius: 3px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+}
+
+.lector-lienzo.marcando img {
+  cursor: crosshair;
+}
+
+/* ------------------------------------------- marcas sobre la hoja */
+
+/* Amarillo translúcido con `multiply`: se ve la tinta debajo, igual que un
+   resaltador de verdad. Un relleno opaco taparía justo lo que se destacó. */
+.marca {
+  position: absolute;
+  border: 1px solid rgba(190, 140, 0, 0.85);
+  border-radius: 2px;
+}
+
+/* El relleno va en un pseudo-elemento y no en `.marca`: `mix-blend-mode` crea
+   contexto de apilado y se llevaría puesto también el globo de la nota, que
+   sobre el fondo oscuro del lector quedaría lavado. */
+.marca::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 214, 51, 0.32);
+  mix-blend-mode: multiply;
+}
+
+/* La que tiene nota se distingue sin pasarle el mouse: si no, no habría forma
+   de saber dónde hay algo escrito. */
+.marca-con-nota {
+  border-color: rgba(47, 111, 237, 0.9);
+}
+
+.marca-con-nota::before {
+  background: rgba(91, 141, 239, 0.3);
+}
+
+.marca-trazo {
+  border-style: dashed;
+}
+
+.marca-trazo::before {
+  background: rgba(255, 214, 51, 0.18);
+}
+
+/* Globo de la nota. `title` nativo tarda casi un segundo y no acepta el botón
+   de borrar, así que va a mano. */
+.marca-globo {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 3;
+  display: none;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 320px;
+  min-width: 0;
+  padding: 7px 9px;
+  line-height: 1.4;
+  color: var(--texto);
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+}
+
+.marca:hover .marca-globo {
+  display: flex;
+}
+
+.marca-texto {
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.marca-borrar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--texto-sutil);
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.marca-borrar:hover {
+  color: var(--peligro);
+  background: var(--peligro-suave);
+}
+
+.marca-editor {
+  margin: 10px 0 4px;
+  padding: 10px;
+  background: var(--superficie-2);
+  border-radius: var(--radio);
+}
+
+.marca-editor .area-nota {
+  min-height: 64px;
+  margin-bottom: 8px;
+}
+
+.lector-marcado {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lector-marcado .btn.activo {
+  color: #fff;
+  background: var(--primario);
+  border-color: var(--primario);
 }
 
 /* El texto reconocido, para leer y no para corregir: los saltos de línea de la
