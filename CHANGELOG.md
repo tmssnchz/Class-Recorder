@@ -4,6 +4,19 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Este proyecto todavía no sigue versionado semántico estricto (está en `0.x`,
 así que cualquier versión puede traer cambios incompatibles).
 
+## [0.9.1] - 2026-09-08
+
+### Arreglado
+
+- **El logo se salía sobre el menú.** Las clases de las anotaciones nuevas se
+  llamaban `.marca*`, y `.marca` ya era el logo de la barra lateral: la regla
+  nueva ganaba por orden y le metía `position: absolute`, así que el logo salía
+  del flujo y caía encima de "Grabar". Pasan a llamarse `marca-hoja*`.
+- **El aviso de páginas repetidas del mesón engañaba.** Decía "Hay números de
+  página repetidos (191)", que se lee como "hay 191 repetidos" cuando en
+  realidad hay uno solo y es el número 191. Ahora el sustantivo va delante: "El
+  número de página 191 aparece en más de una hoja".
+
 ## [0.9.0] - 2026-09-08
 
 ### Añadido
