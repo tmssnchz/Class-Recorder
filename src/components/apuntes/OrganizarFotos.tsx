@@ -130,6 +130,9 @@ export function OrganizarFotos({
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [ultimoClic, setUltimoClic] = useState<string | null>(null);
   const [zoom, setZoom] = useState<string | null>(null);
+  // Dónde caería la página que se está arrastrando dentro de un apunte. Sin
+  // marcarlo, reordenar es adivinar: las miniaturas son chicas y todas iguales.
+  const [sobre, setSobre] = useState<{ clave: string; indice: number } | null>(null);
   const [tamano, setTamano] = useState<"chico" | "medio" | "grande">("medio");
   const [formGrupo, setFormGrupo] = useState<{ claseId: string | null; unidadId: string | null } | null>(
     null,
@@ -365,6 +368,7 @@ export function OrganizarFotos({
 
   const soltarEnGrupo = (clave: string, e: React.DragEvent) => {
     e.preventDefault();
+    setSobre(null);
     const suelta = e.dataTransfer.getData("text/plain");
     const fotosAMover = seleccion.size > 0 ? meson.filter((f) => seleccion.has(f)) : [suelta];
     cambiar(asignar(grupos, clave, fotosAMover.filter(Boolean)));
@@ -586,23 +590,37 @@ export function OrganizarFotos({
                   {g.fotos.map((f, indice) => (
                     <li
                       key={f}
+                      className={
+                        sobre?.clave === g.clave && sobre.indice === indice ? "destino" : undefined
+                      }
                       draggable
                       onDragStart={(e) => {
                         e.dataTransfer.setData("text/plain", f);
                         e.dataTransfer.setData("application/x-indice", String(indice));
                       }}
-                      onDragOver={(e) => e.preventDefault()}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setSobre({ clave: g.clave, indice });
+                      }}
+                      onDragLeave={() => setSobre(null)}
                       onDrop={(e) => {
                         e.preventDefault();
+                        setSobre(null);
+                        const crudo = e.dataTransfer.getData("application/x-indice");
+                        // Sin índice, lo que se está soltando viene del mesón y no
+                        // es un reordenamiento. Sin esta guarda, `Number("")` da 0
+                        // y la hoja arrastrada movía en silencio la primera página
+                        // del apunte en vez de entrar en él.
+                        if (crudo === "") return;
                         e.stopPropagation();
-                        const desde = Number(e.dataTransfer.getData("application/x-indice"));
+                        const desde = Number(crudo);
                         if (Number.isInteger(desde)) {
                           cambiar(moverEnGrupo(grupos, g.clave, desde, indice));
                         }
                       }}
                       onMouseEnter={() => (encima.current = f)}
                       onMouseLeave={() => (encima.current = null)}
-                      title={`Página ${indice + 1} — arrastra para reordenar`}
+                      title={`Página ${indice + 1} — arrástrala para moverla de lugar, o mantén Espacio encima para verla grande`}
                     >
                       <img
                         src={convertFileSrc(analisis.get(f)?.vistaPrevia ?? "")}

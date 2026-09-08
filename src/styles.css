@@ -2542,3 +2542,16 @@ mark {
   background: var(--primario-suave);
   color: var(--texto);
 }
+
+/* Miniaturas de las páginas de un apunte: lo bastante grandes para reconocer
+   la hoja sin abrir el zoom, que es lo que uno hace al reordenar. */
+.organizar-paginas li {
+  width: 54px;
+  height: 72px;
+}
+
+/* Dónde va a caer la página que se arrastra. */
+.organizar-paginas li.destino {
+  outline: 2px solid var(--primario);
+  outline-offset: 1px;
+}
