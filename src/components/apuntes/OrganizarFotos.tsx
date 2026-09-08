@@ -23,6 +23,7 @@ import {
   moverEnGrupo,
   numerosRepetidos,
   ordenDelMeson,
+  ordenarGrupoPorPagina,
   sinAsignar,
   type GrupoOrganizado,
 } from "../../lib/organizar";
@@ -438,7 +439,8 @@ export function OrganizarFotos({
           <p className="sutil">
             Arrastra las hojas al apunte que les toca, o selecciónalas y aprieta el
             número que aparece al lado. Mantén <kbd>Espacio</kbd> sobre una hoja para
-            verla grande.
+            verla grande. Dentro de cada apunte las hojas se pueden reordenar
+            arrastrándolas, o con el botón de ordenar por número de página.
           </p>
         </div>
         <label className="selector-fila">
@@ -554,6 +556,14 @@ export function OrganizarFotos({
                   title="Título del apunte"
                 />
                 <span className="sutil">{g.fotos.length}</span>
+                <button
+                  className="btn btn-icono"
+                  disabled={g.fotos.length < 2}
+                  onClick={() => cambiar(ordenarGrupoPorPagina(grupos, g.clave, numeros))}
+                  title="Ordena las hojas de este apunte por el número de página del marcador. Las que no tengan número quedan al final."
+                >
+                  <Icono nombre="apunte" />
+                </button>
                 <button
                   className="btn btn-icono"
                   onClick={() => borrarGrupo(g.clave)}

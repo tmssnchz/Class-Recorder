@@ -14,6 +14,7 @@ import {
   moverEnGrupo,
   numerosRepetidos,
   ordenDelMeson,
+  ordenarGrupoPorPagina,
   posicionesEnGrupo,
   sinAsignar,
 } from "./organizar.ts";
@@ -111,4 +112,23 @@ const grupo = (clave, fotos) => ({
   assert.equal(p.get("c.jpg"), 1);
 }
 
-console.log("organizar: 8 casos OK");
+{
+  // Ordenar un apunte por el número del marcador: el atajo para el caso normal,
+  // donde la app ya sabe el orden y el usuario no tiene por qué armarlo.
+  const numeros = new Map([
+    ["c.jpg", 4],
+    ["a.jpg", 2],
+    ["b.jpg", null],
+    ["d.jpg", 9],
+  ]);
+  let grupos = [grupo("g1", ["b.jpg", "c.jpg", "d.jpg", "a.jpg"]), grupo("g2", ["x.jpg"])];
+  grupos = ordenarGrupoPorPagina(grupos, "g1", numeros);
+  assert.deepEqual(
+    grupos[0].fotos,
+    ["a.jpg", "c.jpg", "d.jpg", "b.jpg"],
+    "por número, y la que no tiene marcador al final",
+  );
+  assert.deepEqual(grupos[1].fotos, ["x.jpg"], "los otros apuntes no se tocan");
+}
+
+console.log("organizar: 9 casos OK");

@@ -127,6 +127,26 @@ export function moverEnGrupo(
   });
 }
 
+/**
+ * Reordena un grupo por el número de página del marcador.
+ *
+ * Es el atajo para el caso normal: con la mayoría de las hojas numeradas, el
+ * orden correcto ya lo sabe la app y no tiene por qué armarlo el usuario a mano.
+ * Las que no traen número se van al final conservando el orden que tenían, que
+ * es donde el usuario las va a querer acomodar.
+ *
+ * No es automático a propósito: en una tanda con números repetidos entre
+ * corridas de impresión, ordenar por número puede empeorar un orden que el
+ * usuario ya arregló mirando el contenido. Que sea un botón lo deja elegir.
+ */
+export function ordenarGrupoPorPagina(
+  grupos: GrupoOrganizado[],
+  clave: string,
+  numeros: NumerosDeFoto,
+): GrupoOrganizado[] {
+  return grupos.map((g) => (g.clave === clave ? { ...g, fotos: ordenDelMeson(g.fotos, numeros) } : g));
+}
+
 /** Fotos que todavía no están en ningún grupo, en el orden que reciben. */
 export function sinAsignar(fotos: string[], grupos: GrupoOrganizado[]): string[] {
   const asignadas = new Set(grupos.flatMap((g) => g.fotos));
