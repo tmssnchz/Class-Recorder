@@ -26,7 +26,7 @@ import {
   type Esquina,
 } from "../../lib/escaneo";
 import { formatearBytes } from "../../lib/format";
-import { posicionesEnGrupo, type GrupoOrganizado } from "../../lib/organizar";
+import { giroAutomatico, posicionesEnGrupo, type GrupoOrganizado } from "../../lib/organizar";
 import { nombreArchivo } from "../../lib/paths";
 import { PAPELES } from "../../lib/plantilla";
 import {
@@ -59,6 +59,12 @@ interface Props {
    * en una tanda de 68 son varios minutos de espera repetidos por nada.
    */
   analisisPrevio?: Map<string, AnalisisFoto>;
+  /**
+   * Cuartos de vuelta elegidos en el mesón, por ruta. Viajan con el reparto
+   * porque es ahí donde el usuario vio las hojas juntas y se dio cuenta de
+   * cuáles estaban de cabeza.
+   */
+  giros?: Map<string, number>;
   /**
    * Se llama con los apuntes ya armados — uno por cada bloque que haya
    * juntado al menos una página. Guardarlos es del que llama.
@@ -99,6 +105,7 @@ export function EscanearRafaga({
   unidadId,
   grupos,
   analisisPrevio,
+  giros,
   onTerminar,
   onCancelar,
   onFotoUsada,
@@ -131,6 +138,10 @@ export function EscanearRafaga({
   const [analisis, setAnalisis] = useState<AnalisisFoto | null>(null);
   const [esquinas, setEsquinas] = useState<Esquina[]>([]);
   const [geometria, setGeometria] = useState<GeometriaPlantilla>(config.apuntes.plantilla);
+  // Cuartos de vuelta con los que se está viendo la hoja. Con marcadores sale de
+  // las esquinas y el recorte ya viene derecho; sin ellos lo elige el usuario y
+  // ahí sí hay que girar el recorte.
+  const [giro, setGiro] = useState(0);
   const [analizando, setAnalizando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -208,6 +219,7 @@ export function EscanearRafaga({
     if (yaVisto) {
       setAnalisis(yaVisto);
       setEsquinas(yaVisto.esquinas);
+      setGiro(giros?.get(fotoActual) ?? giroAutomatico(yaVisto.esquinas));
       if (yaVisto.geometria) setGeometria(yaVisto.geometria);
       setAnalizando(false);
       return;
@@ -219,6 +231,7 @@ export function EscanearRafaga({
         if (!vigente) return;
         setAnalisis(a);
         setEsquinas(a.esquinas);
+        setGiro(giros?.get(fotoActual) ?? giroAutomatico(a.esquinas));
         // Con marcadores, el backend devuelve la geometría con la que recortó
         // —la configurada— y se adopta. Cuando no hay (detección por
         // contraste) se conserva el papel que el usuario haya elegido a mano
@@ -234,7 +247,7 @@ export function EscanearRafaga({
     return () => {
       vigente = false;
     };
-  }, [fotoActual, config.apuntes.plantilla, analisisPrevio]);
+  }, [fotoActual, config.apuntes.plantilla, analisisPrevio, giros]);
 
   // Una hoja "resuelta sola" es la que trae los cuatro marcadores leídos y
   // ningún aviso. Con un marcador estimado o una foto movida se para: son
@@ -297,6 +310,10 @@ export function EscanearRafaga({
         geometria,
         { carpeta: destinoCarpeta, numero: bloque.paginas.length + 1 },
         config,
+        // Solo el giro que el usuario agregó por encima del que ya trae la
+        // detección: con marcadores la homografía deja la hoja de pie sola, así
+        // que mandarle ese mismo giro al recorte la voltearía de más.
+        (giro - giroAutomatico(analisis.esquinas) + 4) % 4,
       );
 
       const clave = bloque.clave;
@@ -333,6 +350,7 @@ export function EscanearRafaga({
     esquinas,
     fotoActual,
     geometria,
+    giro,
     grupoDeFoto,
     onFotoUsada,
     posiciones,
@@ -568,6 +586,7 @@ export function EscanearRafaga({
             foto={analisis.vistaPrevia}
             anchoFoto={analisis.ancho}
             altoFoto={analisis.alto}
+            giro={giro}
             esquinas={esquinas}
             onCambiar={setEsquinas}
           />
@@ -700,7 +719,20 @@ export function EscanearRafaga({
               </label>
             )}
 
-            <button className="btn" onClick={() => setEsquinas(analisis.esquinas)}>
+            <button
+              className="btn"
+              onClick={() => setGiro((g) => (g + 1) % 4)}
+              title="Gira la hoja un cuarto de vuelta. Con marcadores es solo para verla; sin plantilla el giro también se le aplica al recorte."
+            >
+              <Icono nombre="girar" /> Girar
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                setEsquinas(analisis.esquinas);
+                setGiro(giroAutomatico(analisis.esquinas));
+              }}
+            >
               Volver a la detección
             </button>
             <button className="btn" onClick={saltar} disabled={guardando}>

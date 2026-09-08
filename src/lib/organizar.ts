@@ -168,3 +168,28 @@ export function posicionesEnGrupo(grupos: GrupoOrganizado[]): Map<string, number
   }
   return posiciones;
 }
+
+/**
+ * Cuartos de vuelta horarios que hay que girarle a una foto para verla derecha.
+ *
+ * Sale del vector que va de la esquina superior izquierda de la hoja a su
+ * superior derecha — `esquinas[0]` y `esquinas[1]` del análisis. Con marcadores
+ * ese vector es el borde de arriba de la hoja de verdad, porque cada ArUco dice
+ * qué esquina es (`id = pagina*4 + esquina`) y no dónde cayó en la foto: una
+ * foto sacada de cabeza da un vector que apunta a la izquierda, o sea media
+ * vuelta.
+ *
+ * Sin marcadores devuelve siempre 0, y no por casualidad: ahí las esquinas
+ * salen de `extremos()`, que las ordena por su posición en la foto, así que el
+ * vector apunta siempre a la derecha. Esas hojas hay que girarlas a mano.
+ *
+ * Es solo para mostrar: el recorte con marcadores ya sale derecho porque la
+ * homografía usa el mismo orden de esquinas.
+ */
+export function giroAutomatico(esquinas: { x: number; y: number }[]): number {
+  if (esquinas.length < 2) return 0;
+  const grados =
+    (Math.atan2(esquinas[1].y - esquinas[0].y, esquinas[1].x - esquinas[0].x) * 180) / Math.PI;
+  // El giro que hay que aplicar es el opuesto al que trae la foto.
+  return ((-Math.round(grados / 90)) % 4 + 4) % 4;
+}

@@ -39,6 +39,7 @@ type Modo =
       /** Solo cuando la tanda pasó antes por el mesón de organización. */
       grupos?: GrupoOrganizado[];
       analisisPrevio?: Map<string, AnalisisFoto>;
+      giros?: Map<string, number>;
     }
   | { tipo: "editor"; apunteId: string };
 
@@ -99,7 +100,7 @@ export function ApuntesPanel({ apunteInicial, onApunteAbierto }: Props) {
           fotos={modo.fotos}
           claseId={modo.claseId}
           unidadId={modo.unidadId}
-          onOrganizado={(grupos, analisisPrevio) =>
+          onOrganizado={(grupos, analisisPrevio, giros) =>
             setModo({
               tipo: "rafaga",
               // Solo las fotos repartidas, en el orden que quedó: el mesón ya
@@ -109,6 +110,7 @@ export function ApuntesPanel({ apunteInicial, onApunteAbierto }: Props) {
               unidadId: modo.unidadId,
               grupos,
               analisisPrevio,
+              giros,
             })
           }
           onCancelar={() => setModo({ tipo: "lista" })}
@@ -126,6 +128,7 @@ export function ApuntesPanel({ apunteInicial, onApunteAbierto }: Props) {
           unidadId={modo.unidadId}
           grupos={modo.grupos}
           analisisPrevio={modo.analisisPrevio}
+          giros={modo.giros}
           onTerminar={(resultados) => void terminarRafaga(resultados)}
           onCancelar={() => setModo({ tipo: "lista" })}
           onFotoUsada={(ruta) => void archivarFoto(ruta, config.carpetaInbox)}

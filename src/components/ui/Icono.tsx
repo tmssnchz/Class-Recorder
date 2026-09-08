@@ -19,7 +19,8 @@ type Nombre =
   | "nube"
   | "apunte"
   | "imprimir"
-  | "lupa";
+  | "lupa"
+  | "girar";
 
 const TRAZOS: Record<Nombre, string> = {
   micro:
@@ -48,6 +49,8 @@ const TRAZOS: Record<Nombre, string> = {
   imprimir:
     "M6 9V3h12v6M6 18H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-1M6 14h12v7H6Z",
   lupa: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14ZM21 21l-5.2-5.2",
+  // Flecha circular en sentido horario: girar un cuarto de vuelta.
+  girar: "M21 3v6h-6M20.5 13a8.5 8.5 0 1 1-2.4-6.6L21 9",
 };
 
 export function Icono({

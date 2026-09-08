@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import {
   asignar,
   devolverAlMeson,
+  giroAutomatico,
   moverEnGrupo,
   numerosRepetidos,
   ordenDelMeson,
@@ -131,4 +132,22 @@ const grupo = (clave, fotos) => ({
   assert.deepEqual(grupos[1].fotos, ["x.jpg"], "los otros apuntes no se tocan");
 }
 
-console.log("organizar: 9 casos OK");
+
+{
+  // Giro automático desde las esquinas del análisis. El vector va de la esquina
+  // superior izquierda de la hoja a la superior derecha; el giro es el que hay
+  // que aplicarle a la foto para dejarla derecha, o sea el opuesto.
+  const derecha = [{ x: 100, y: 100 }, { x: 900, y: 110 }];
+  const cabeza = [{ x: 900, y: 900 }, { x: 100, y: 890 }];
+  // Foto girada un cuarto en sentido horario: el borde de arriba baja.
+  const horario = [{ x: 900, y: 100 }, { x: 890, y: 900 }];
+  const antihorario = [{ x: 100, y: 900 }, { x: 110, y: 100 }];
+  assert.equal(giroAutomatico(derecha), 0);
+  assert.equal(giroAutomatico(cabeza), 2);
+  assert.equal(giroAutomatico(horario), 3);
+  assert.equal(giroAutomatico(antihorario), 1);
+  // Sin marcadores no hay dos esquinas que digan nada: no se gira sola.
+  assert.equal(giroAutomatico([]), 0);
+}
+
+console.log("organizar: 10 casos OK");

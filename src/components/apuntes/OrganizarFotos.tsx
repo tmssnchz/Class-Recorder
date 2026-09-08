@@ -20,6 +20,7 @@ import { nombreArchivo } from "../../lib/paths";
 import {
   asignar,
   devolverAlMeson,
+  giroAutomatico,
   moverEnGrupo,
   numerosRepetidos,
   ordenDelMeson,
@@ -60,6 +61,11 @@ interface SesionGuardada {
   grupos: GrupoOrganizado[];
   /** Map serializado como pares, que es lo que aguanta JSON. */
   analisis: [string, AnalisisFoto][];
+  /**
+   * Giros elegidos a mano, también como pares. Solo los que el usuario tocó: el
+   * resto se vuelve a deducir de las esquinas, que salen del análisis.
+   */
+  giros?: [string, number][];
 }
 
 /**
@@ -97,7 +103,11 @@ interface Props {
   /** Destino que traía la cola, para el primer apunte. */
   claseId: string | null;
   unidadId: string | null;
-  onOrganizado(grupos: GrupoOrganizado[], analisis: Map<string, AnalisisFoto>): void;
+  onOrganizado(
+    grupos: GrupoOrganizado[],
+    analisis: Map<string, AnalisisFoto>,
+    giros: Map<string, number>,
+  ): void;
   onCancelar(): void;
 }
 
@@ -127,6 +137,10 @@ export function OrganizarFotos({
   const [analizadas, setAnalizadas] = useState(() => recuperada?.analisis.length ?? 0);
 
   const [grupos, setGrupos] = useState<GrupoOrganizado[]>(() => recuperada?.grupos ?? []);
+  // Giros elegidos a mano. Lo que no está acá se deduce de las esquinas.
+  const [girosManuales, setGirosManuales] = useState<Map<string, number>>(
+    () => new Map(recuperada?.giros ?? []),
+  );
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [ultimoClic, setUltimoClic] = useState<string | null>(null);
   const [zoom, setZoom] = useState<string | null>(null);
@@ -223,6 +237,24 @@ export function OrganizarFotos({
   const repetidos = useMemo(() => numerosRepetidos(utilizables, numeros), [utilizables, numeros]);
   const meson = useMemo(() => sinAsignar(ordenadas, grupos), [ordenadas, grupos]);
 
+  /**
+   * Cuartos de vuelta con los que se muestra cada hoja: el que dedujeron los
+   * marcadores, salvo que el usuario haya elegido otro.
+   *
+   * Las hojas sin plantilla siempre arrancan en cero —sus esquinas salen del
+   * borde, no de los marcadores— así que son las que hay que girar a mano.
+   */
+  const giros = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const f of utilizables) {
+      m.set(f, girosManuales.get(f) ?? giroAutomatico(analisis.get(f)?.esquinas ?? []));
+    }
+    return m;
+  }, [analisis, girosManuales, utilizables]);
+
+  const girar = (ruta: string) =>
+    setGirosManuales((m) => new Map(m).set(ruta, ((giros.get(ruta) ?? 0) + 1) % 4));
+
   // Guarda el reparto en cada cambio. Es barato —unos cientos de kB de JSON—
   // y es lo que hace que cambiar de pestaña, o cerrar la app sin querer, deje
   // de costar todo el trabajo hecho.
@@ -231,13 +263,18 @@ export function OrganizarFotos({
     try {
       localStorage.setItem(
         CLAVE_SESION,
-        JSON.stringify({ fotos, grupos, analisis: [...analisis] } satisfies SesionGuardada),
+        JSON.stringify({
+          fotos,
+          grupos,
+          analisis: [...analisis],
+          giros: [...girosManuales],
+        } satisfies SesionGuardada),
       );
     } catch {
       // Si no se puede guardar —almacenamiento lleno o deshabilitado— se sigue
       // organizando igual: se pierde la red de seguridad, no la sesión.
     }
-  }, [analisis, fotos, grupos, listo]);
+  }, [analisis, fotos, girosManuales, grupos, listo]);
 
   // ---------------------------------------------------------- selección
 
@@ -444,7 +481,9 @@ export function OrganizarFotos({
             Arrastra las hojas al apunte que les toca, o selecciónalas y aprieta el
             número que aparece al lado. Mantén <kbd>Espacio</kbd> sobre una hoja para
             verla grande. Dentro de cada apunte las hojas se pueden reordenar
-            arrastrándolas, o con el botón de ordenar por número de página.
+            arrastrándolas, o con el botón de ordenar por número de página. Las
+            hojas con marcadores ya se muestran derechas; las de cuaderno se
+            enderezan con el botón de girar de cada tarjeta.
           </p>
         </div>
         <label className="selector-fila">
@@ -620,6 +659,7 @@ export function OrganizarFotos({
                       }}
                       onMouseEnter={() => (encima.current = f)}
                       onMouseLeave={() => (encima.current = null)}
+                      data-giro={giros.get(f) ?? 0}
                       title={`Página ${indice + 1} — arrástrala para moverla de lugar, o mantén Espacio encima para verla grande`}
                     >
                       <img
@@ -627,6 +667,7 @@ export function OrganizarFotos({
                         alt={`Página ${indice + 1}`}
                         loading="lazy"
                         draggable={false}
+                        style={{ transform: `rotate(${(giros.get(f) ?? 0) * 90}deg)` }}
                       />
                       <span>{indice + 1}</span>
                     </li>
@@ -665,7 +706,19 @@ export function OrganizarFotos({
                     alt={nombreArchivo(f)}
                     loading="lazy"
                     draggable={false}
+                    data-giro={giros.get(f) ?? 0}
+                    style={{ transform: `rotate(${(giros.get(f) ?? 0) * 90}deg)` }}
                   />
+                  <button
+                    className="organizar-girar"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      girar(f);
+                    }}
+                    title="Girar un cuarto de vuelta. Las hojas con marcadores ya vienen derechas; esto es para las que no tienen plantilla."
+                  >
+                    <Icono nombre="girar" />
+                  </button>
                   <button
                     className="organizar-lupa"
                     onClick={(e) => {
@@ -706,7 +759,7 @@ export function OrganizarFotos({
           className="btn btn-primario"
           onClick={() => {
             olvidarSesion();
-            onOrganizado(gruposConFotos, analisis);
+            onOrganizado(gruposConFotos, analisis, giros);
           }}
           disabled={meson.length > 0 || gruposConFotos.length === 0}
           title={
@@ -721,7 +774,12 @@ export function OrganizarFotos({
 
       {zoom && (
         <div className="organizar-zoom" onClick={() => setZoom(null)}>
-          <img src={convertFileSrc(analisis.get(zoom)?.vistaPrevia ?? "")} alt="Hoja ampliada" />
+          <img
+            src={convertFileSrc(analisis.get(zoom)?.vistaPrevia ?? "")}
+            alt="Hoja ampliada"
+            data-giro={giros.get(zoom) ?? 0}
+            style={{ transform: `rotate(${(giros.get(zoom) ?? 0) * 90}deg)` }}
+          />
         </div>
       )}
     </div>

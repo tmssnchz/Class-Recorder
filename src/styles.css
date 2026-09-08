@@ -1977,10 +1977,21 @@ mark {
 
 /* ------------------------------------------------------ ajuste de esquinas */
 
-.ajustar-esquinas {
+/* El marco reserva el hueco que ocupa la foto ya girada; la capa de adentro se
+   gira entera —foto, polígono y tiradores— para que los puntos sigan cayendo
+   sobre la esquina que marcan. */
+.ajustar-esquinas-marco {
   position: relative;
   width: 100%;
   margin: 12px 0;
+  overflow: hidden;
+}
+
+.ajustar-esquinas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
   line-height: 0;
   user-select: none;
   touch-action: none;
@@ -1988,7 +1999,7 @@ mark {
 
 .ajustar-esquinas img {
   width: 100%;
-  height: auto;
+  height: 100%;
   border-radius: var(--radio);
 }
 
@@ -2476,6 +2487,15 @@ mark {
   background: var(--superficie-2);
 }
 
+/* Girada un cuarto de vuelta, la miniatura ocuparía a lo ancho lo que mide de
+   alto y se saldría de su celda. Con el recuadro cuadrado da igual para qué
+   lado esté: girarlo no cambia el espacio que ocupa. */
+.organizar-hoja img[data-giro="1"],
+.organizar-hoja img[data-giro="3"] {
+  height: auto;
+  aspect-ratio: 1;
+}
+
 .meson-chico .organizar-hoja img {
   height: 130px;
 }
@@ -2511,7 +2531,26 @@ mark {
   opacity: 0;
 }
 
-.organizar-hoja:hover .organizar-lupa {
+/* Girar y ver grande comparten forma; se separan por el lado en que aparecen. */
+.organizar-girar {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.organizar-hoja:hover .organizar-lupa,
+.organizar-hoja:hover .organizar-girar {
   opacity: 1;
 }
 
@@ -2534,6 +2573,13 @@ mark {
   border-radius: 4px;
 }
 
+/* Acostada, la hoja ampliada se mide contra el lado contrario de la ventana. */
+.organizar-zoom img[data-giro="1"],
+.organizar-zoom img[data-giro="3"] {
+  max-width: 92vh;
+  max-height: 92vw;
+}
+
 /* Destino ya decidido en el mesón: se informa, no se vuelve a preguntar. */
 .destino-fijo {
   margin: 0;
@@ -2548,6 +2594,13 @@ mark {
 .organizar-paginas li {
   width: 54px;
   height: 72px;
+}
+
+/* Mismo motivo que en el mesón: acostada, la miniatura necesita un recuadro
+   cuadrado para no salirse. */
+.organizar-paginas li[data-giro="1"],
+.organizar-paginas li[data-giro="3"] {
+  width: 72px;
 }
 
 /* Dónde va a caer la página que se arrastra. */

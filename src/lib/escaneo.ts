@@ -85,6 +85,12 @@ interface PedidoRectificar {
   dpi: number;
   calidad: number;
   modo: ModoEscaneo;
+  /**
+   * Cuartos de vuelta horarios a aplicarle al recorte. Solo hacen falta cuando
+   * las esquinas no vinieron de los marcadores: ahí la homografía ya deja la
+   * hoja de pie sola. Ver `giroAutomatico` en `organizar.ts`.
+   */
+  cuartos: number;
 }
 
 export const rectificarFoto = (pedido: PedidoRectificar) =>
@@ -161,6 +167,7 @@ export async function digitalizarFoto(
   geometria: GeometriaPlantilla,
   destino: DestinoApunte,
   config: Config,
+  cuartos = 0,
 ): Promise<PaginaApunte> {
   const opciones = config.apuntes;
   if (!(await exists(destino.carpeta))) {
@@ -176,6 +183,7 @@ export async function digitalizarFoto(
     dpi: opciones.dpiEscaneo,
     calidad: opciones.calidadEscaneo,
     modo: opciones.modoEscaneo,
+    cuartos,
   });
 
   if (info.bytes === 0) {

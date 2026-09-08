@@ -859,6 +859,16 @@ pub struct PedidoRectificar {
     pub calidad: u8,
     /// "color" | "gris" | "original". Ver `limpiar_color` y `limpiar_escaneo`.
     pub modo: String,
+    /// Cuartos de vuelta horarios que hay que aplicarle al recorte.
+    ///
+    /// Es cero cuando las esquinas salieron de los marcadores: ahí la
+    /// homografía ya deja la hoja de pie, porque cada marcador dice qué esquina
+    /// de la hoja es. Sin marcadores las esquinas salen de `extremos()`, que
+    /// ordena por posición en la foto y no sabe para dónde va el texto: una
+    /// hoja fotografiada de costado o al revés da un recorte de costado o al
+    /// revés, y el giro es lo único que lo arregla.
+    #[serde(default)]
+    pub cuartos: u8,
 }
 
 #[derive(Serialize)]
@@ -884,8 +894,19 @@ fn rectificar(p: PedidoRectificar) -> Result<RectificadoInfo, String> {
     let img = abrir_con_orientacion(Path::new(&p.ruta))?;
 
     let px_por_mm = p.dpi as f32 / 25.4;
-    let ancho = (p.geometria.ancho_mm * px_por_mm).round().max(1.0) as u32;
-    let alto = (p.geometria.alto_mm * px_por_mm).round().max(1.0) as u32;
+    let ancho_hoja = (p.geometria.ancho_mm * px_por_mm).round().max(1.0) as u32;
+    let alto_hoja = (p.geometria.alto_mm * px_por_mm).round().max(1.0) as u32;
+
+    // Con un cuarto de vuelta impar la hoja está acostada dentro de la foto:
+    // se la rectifica acostada y el giro de después la deja de pie con la
+    // proporción correcta. Rectificarla de pie y girarla la dejaría aplastada,
+    // porque el cuadrilátero de origen es ancho y el destino sería alto.
+    let cuartos = p.cuartos % 4;
+    let (ancho, alto) = if cuartos % 2 == 1 {
+        (alto_hoja, ancho_hoja)
+    } else {
+        (ancho_hoja, alto_hoja)
+    };
 
     let desde = [
         (p.esquinas[0].x, p.esquinas[0].y),
@@ -934,13 +955,20 @@ fn rectificar(p: PedidoRectificar) -> Result<RectificadoInfo, String> {
         DynamicImage::ImageRgb8(destino)
     };
 
+    let salida = match cuartos {
+        1 => salida.rotate90(),
+        2 => salida.rotate180(),
+        3 => salida.rotate270(),
+        _ => salida,
+    };
+
     guardar_jpeg(&salida, &p.salida, p.calidad)?;
     let bytes = std::fs::metadata(&p.salida).map(|m| m.len()).unwrap_or(0);
 
     Ok(RectificadoInfo {
         archivo: p.salida,
-        ancho,
-        alto,
+        ancho: salida.width(),
+        alto: salida.height(),
         bytes,
     })
 }
@@ -1171,6 +1199,68 @@ mod tests {
             },
             _ => B5,
         }
+    }
+
+    /// Un cuarto de vuelta tiene que dejar la hoja de pie y con la proporción
+    /// correcta, no aplastada.
+    ///
+    /// Es el caso de las hojas sin plantilla: sus esquinas salen de `extremos()`,
+    /// que las ordena por su posición en la foto, así que una hoja fotografiada
+    /// de costado entra al recorte acostada. Si el giro se aplicara sin cambiar
+    /// el tamaño de destino, la hoja saldría de pie pero con el ancho y el alto
+    /// cambiados, o sea estirada.
+    #[test]
+    fn un_cuarto_de_vuelta_deja_la_hoja_de_pie_sin_aplastarla() {
+        let dir = std::env::temp_dir().join("classrecorder-test-giro");
+        std::fs::create_dir_all(&dir).expect("se crea el temporal");
+        let entrada = dir.join("acostada.png");
+
+        // Hoja acostada dentro de la foto, con una marca negra en la esquina
+        // superior izquierda del cuadrilátero para saber dónde termina.
+        let mut foto: GrayImage = ImageBuffer::from_pixel(500, 300, Luma([255u8]));
+        for y in 10..40 {
+            for x in 10..40 {
+                foto.put_pixel(x, y, Luma([0u8]));
+            }
+        }
+        DynamicImage::ImageLuma8(foto).save(&entrada).expect("se guarda la foto");
+
+        let esquinas = vec![
+            Esquina { x: 0.0, y: 0.0 },
+            Esquina { x: 500.0, y: 0.0 },
+            Esquina { x: 500.0, y: 300.0 },
+            Esquina { x: 0.0, y: 300.0 },
+        ];
+        let pedido = |cuartos, salida: &std::path::Path| PedidoRectificar {
+            ruta: entrada.to_string_lossy().to_string(),
+            salida: salida.to_string_lossy().to_string(),
+            esquinas: esquinas.clone(),
+            geometria: B5,
+            dpi: 50,
+            calidad: 90,
+            modo: "original".into(),
+            cuartos,
+        };
+
+        let derecho = dir.join("derecho.jpg");
+        let info = rectificar(pedido(0, &derecho)).expect("se rectifica sin giro");
+        assert!(info.alto > info.ancho, "sin giro la hoja va de pie");
+
+        // Un cuarto de vuelta horario: la hoja sigue de pie —el destino se
+        // rectifica acostado y el giro lo endereza— y con la misma proporción.
+        let girado = dir.join("girado.jpg");
+        let g = rectificar(pedido(1, &girado)).expect("se rectifica girada");
+        assert_eq!((g.ancho, g.alto), (info.ancho, info.alto));
+
+        // Y la marca viajó de la esquina superior izquierda a la superior
+        // derecha, que es lo que hace un cuarto de vuelta horario.
+        let salida = image::open(&girado).expect("se abre el recorte").to_luma8();
+        // Cae dentro de la marca de 30 px, ya escalada al tamaño del recorte.
+        let borde = 25;
+        let der = salida.get_pixel(salida.width() - borde, borde)[0];
+        let izq = salida.get_pixel(borde, borde)[0];
+        assert!(der < 100, "la marca tendría que estar arriba a la derecha ({der})");
+        assert!(izq > 200, "arriba a la izquierda tendría que quedar blanco ({izq})");
     }
 
     #[test]
@@ -1589,6 +1679,7 @@ mod tests {
             dpi: 300,
             calidad: 90,
             modo: "original".into(),
+            cuartos: 0,
         })
         .expect("se rectifica");
 
@@ -1618,6 +1709,7 @@ mod tests {
             dpi: 300,
             calidad: 80,
             modo: "gris".into(),
+            cuartos: 0,
         })
         .expect("se rectifica en limpio");
         assert_eq!((limpio.ancho, limpio.alto), (pw, ph));
@@ -1882,6 +1974,7 @@ acumulando pasadas, en ese orden:");
             dpi: 200,
             calidad: 88,
             modo,
+            cuartos: 0,
         })
         .expect("se rectifica");
         println!("escaneo {}x{} en {}", info.ancho, info.alto, info.archivo);
