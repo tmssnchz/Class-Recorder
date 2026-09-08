@@ -29,6 +29,7 @@ import {
 import {
   apuntesVisiblesDe,
   progresoReconocimiento,
+  sinDuplicados,
   versionesAnteriores,
   vigentes,
 } from "./apuntes.ts";
@@ -412,4 +413,40 @@ const apunte = (id, extra = {}) => ({
   assert.deepEqual(progresoReconocimiento(a), { hechas: 1, total: 2 });
 }
 
-console.log("apuntes: 21 casos OK");
+// ------------------------------------------------------- índice duplicado
+
+{
+  // Dos registros de la misma carpeta son el mismo apunte anotado dos veces.
+  // Gana el que tiene más páginas reconocidas: es el que se estuvo usando.
+  const flojo = apunte("dup1", {
+    carpeta: "C:/x/mismo",
+    paginas: [pagina("p1", 1), pagina("p2", 2)],
+  });
+  const bueno = apunte("dup2", {
+    carpeta: "C:/x/mismo",
+    paginas: [pagina("p1", 1, { motorHtr: "glm-ocr" }), pagina("p2", 2)],
+  });
+  const otro = apunte("solo", { carpeta: "C:/x/otro" });
+
+  assert.deepEqual(
+    sinDuplicados([flojo, bueno, otro]).map((a) => a.id),
+    ["dup2", "solo"],
+    "se conserva el duplicado con más texto reconocido",
+  );
+  assert.deepEqual(
+    sinDuplicados([bueno, flojo, otro]).map((a) => a.id),
+    ["dup2", "solo"],
+    "y no depende del orden en que estén en el índice",
+  );
+  // Carpetas distintas nunca son duplicados, aunque compartan título.
+  const a1 = apunte("a1", { carpeta: "C:/x/uno" });
+  const a2 = apunte("a2", { carpeta: "C:/x/uno_2" });
+  assert.equal(sinDuplicados([a1, a2]).length, 2);
+  // Windows no distingue mayúsculas en las rutas: sí son la misma carpeta.
+  assert.equal(
+    sinDuplicados([apunte("m1", { carpeta: "C:/X/Uno" }), a1]).length,
+    1,
+  );
+}
+
+console.log("apuntes: 25 casos OK");

@@ -10,7 +10,7 @@
  *   carpeta_raiz/{clase}/{unidad}/materiales/apuntes/{titulo}/pagina-01.jpg
  */
 import { invoke } from "@tauri-apps/api/core";
-import { copyFile, exists, mkdir, remove } from "@tauri-apps/plugin-fs";
+import { copyFile, exists, mkdir, remove, rename } from "@tauri-apps/plugin-fs";
 
 // Extensiones explícitas: el test corre con `node --experimental-strip-types`,
 // sin el resolver de Vite.
@@ -229,6 +229,70 @@ export async function digitalizarFoto(
  */
 export function renumerar(paginas: PaginaApunte[]): PaginaApunte[] {
   return paginas.map((p, i) => ({ ...p, numero: i + 1 }));
+}
+
+/**
+ * Nombre libre dentro de una carpeta, agregando _2, _3… antes de la extensión.
+ * Los nombres de página se repiten entre apuntes (`pagina-01.jpg` está en
+ * todos), así que mover una hoja de un apunte a otro casi siempre choca.
+ */
+async function rutaLibre(carpeta: string, nombre: string): Promise<string> {
+  const punto = nombre.lastIndexOf(".");
+  const base = punto === -1 ? nombre : nombre.slice(0, punto);
+  const extension = punto === -1 ? "" : nombre.slice(punto);
+  let ruta = unir(carpeta, nombre);
+  let intento = 2;
+  while (await exists(ruta)) {
+    ruta = unir(carpeta, `${base}_${intento++}${extension}`);
+  }
+  return ruta;
+}
+
+/**
+ * Mueve una hoja de un apunte a otro, llevándose sus archivos.
+ *
+ * Los archivos se mueven de verdad y no solo la entrada del índice: si la
+ * página siguiera viviendo en la carpeta del apunte de origen, borrar ese
+ * apunte se llevaría puesta una hoja que ya no le pertenece.
+ *
+ * El nombre en destino se elige libre y no se renumera el archivo, igual que
+ * en `renumerar`: el número de página vive en el índice, no en la ruta.
+ *
+ * Devuelve las páginas ya renumeradas de los dos apuntes; guardarlas en el
+ * índice es cosa de quien llama.
+ */
+export async function moverPaginaAApunte(
+  origen: Apunte,
+  paginaId: string,
+  destino: Apunte,
+): Promise<{ origen: PaginaApunte[]; destino: PaginaApunte[] }> {
+  const pagina = origen.paginas.find((p) => p.id === paginaId);
+  if (!pagina || origen.id === destino.id) {
+    return { origen: origen.paginas, destino: destino.paginas };
+  }
+
+  if (!(await exists(destino.carpeta))) await mkdir(destino.carpeta, { recursive: true });
+  const archivo = await rutaLibre(destino.carpeta, nombreArchivo(pagina.archivo));
+  await rename(pagina.archivo, archivo);
+
+  let original = pagina.original;
+  if (original) {
+    const carpetaOriginales = unir(destino.carpeta, "originales");
+    if (!(await exists(carpetaOriginales))) {
+      await mkdir(carpetaOriginales, { recursive: true });
+    }
+    const ruta = await rutaLibre(carpetaOriginales, nombreArchivo(original));
+    await rename(original, ruta);
+    original = ruta;
+  }
+
+  const ordenadas = [...destino.paginas].sort((a, b) => a.numero - b.numero);
+  return {
+    origen: renumerar(
+      [...origen.paginas].sort((a, b) => a.numero - b.numero).filter((p) => p.id !== paginaId),
+    ),
+    destino: renumerar([...ordenadas, { ...pagina, archivo, original }]),
+  };
 }
 
 /**

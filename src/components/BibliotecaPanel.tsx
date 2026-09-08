@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { useGrabador } from "../estado/grabador";
 import { useStore } from "../estado/store";
 import { esPlaceholder } from "../lib/almacenamiento";
+import { vigentes } from "../lib/apuntes";
 import { construirArbol } from "../lib/arbol";
 import {
   buscarEnApuntes,
@@ -15,11 +16,25 @@ import { type Apunte, type Grabacion } from "../types";
 import { Calendario } from "./biblioteca/Calendario";
 import { DetalleGrabacion } from "./biblioteca/DetalleGrabacion";
 import { Pendientes } from "./biblioteca/Pendientes";
+import { VistaApunte } from "./biblioteca/VistaApunte";
 import { Icono } from "./ui/Icono";
 
 type Vista = "arbol" | "calendario" | "pendientes";
 
-export function BibliotecaPanel({ onAbrirApunte }: { onAbrirApunte?(apunteId: string): void }) {
+/**
+ * El árbol de la Biblioteca muestra las dos cosas que cuelgan de una unidad:
+ * lo grabado y lo escaneado. Se distinguen por `paginas`, que solo tiene el
+ * apunte.
+ */
+type ItemBiblioteca = Grabacion | Apunte;
+const esApunte = (i: ItemBiblioteca): i is Apunte => "paginas" in i;
+
+export function BibliotecaPanel({
+  onCorregirApunte,
+}: {
+  /** Manda un apunte a la pestaña Digitalizar, ya abierto en su editor. */
+  onCorregirApunte?(apunteId: string): void;
+}) {
   const { datos } = useStore();
   const { conversiones } = useGrabador();
 
@@ -29,6 +44,9 @@ export function BibliotecaPanel({ onAbrirApunte }: { onAbrirApunte?(apunteId: st
   const [filtroTag, setFiltroTag] = useState<string | null>(null);
   const [diaSeleccionado, setDiaSeleccionado] = useState<string | null>(null);
   const [seleccionada, setSeleccionada] = useState<string | null>(null);
+  // La columna de detalle muestra una grabación o un apunte: elegir uno suelta
+  // el otro, igual que en cualquier lista de un solo panel de detalle.
+  const [apunteAbierto, setApunteAbierto] = useState<string | null>(null);
   // Colapsado por defecto; se pierde al reiniciar (no vale la pena persistirlo).
   const [expandidas, setExpandidas] = useState<Set<string>>(new Set());
   const [enTranscripciones, setEnTranscripciones] = useState(false);
@@ -75,8 +93,9 @@ export function BibliotecaPanel({ onAbrirApunte }: { onAbrirApunte?(apunteId: st
   const todosLosTags = useMemo(() => {
     const set = new Set<string>();
     for (const g of datos.grabaciones) for (const t of g.tags) set.add(t);
+    for (const a of datos.apuntes) for (const t of a.tags) set.add(t);
     return [...set].sort();
-  }, [datos.grabaciones]);
+  }, [datos.grabaciones, datos.apuntes]);
 
   const hayFiltros = Boolean(busqueda || filtroClase || filtroTag);
 
@@ -102,9 +121,33 @@ export function BibliotecaPanel({ onAbrirApunte }: { onAbrirApunte?(apunteId: st
       );
   }, [datos.grabaciones, busqueda, filtroClase, filtroTag]);
 
+  // Los apuntes se filtran por su cuenta —no tienen duración ni marcas— y
+  // después entran al mismo árbol, colgando de la misma unidad.
+  const apuntes = useMemo(() => vigentes(datos.apuntes), [datos.apuntes]);
+
+  const apuntesFiltrados = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    return apuntes
+      .filter((a) => {
+        if (filtroClase && a.claseId !== filtroClase) return false;
+        if (filtroTag && !a.tags.includes(filtroTag)) return false;
+        if (!q) return true;
+        return [a.titulo, a.claseNombre, a.unidadNombre, a.nota ?? "", ...a.tags]
+          .join(" ")
+          .toLowerCase()
+          .includes(q);
+      })
+      .sort((a, b) => b.fechaISO.localeCompare(a.fechaISO));
+  }, [apuntes, busqueda, filtroClase, filtroTag]);
+
   const arbol = useMemo(
-    () => construirArbol(datos.clases, filtradas, hayFiltros),
-    [filtradas, datos.clases, hayFiltros],
+    () =>
+      construirArbol<ItemBiblioteca>(
+        datos.clases,
+        [...filtradas, ...apuntesFiltrados],
+        hayFiltros,
+      ),
+    [filtradas, apuntesFiltrados, datos.clases, hayFiltros],
   );
 
   const alternarExpandida = (clave: string) => {
@@ -127,7 +170,18 @@ export function BibliotecaPanel({ onAbrirApunte }: { onAbrirApunte?(apunteId: st
 
   const colapsarTodo = () => setExpandidas(new Set());
 
+  const elegirGrabacion = (id: string) => {
+    setApunteAbierto(null);
+    setSeleccionada(id);
+  };
+
+  const elegirApunte = (id: string) => {
+    setSeleccionada(null);
+    setApunteAbierto(id);
+  };
+
   const grabacion = datos.grabaciones.find((g) => g.id === seleccionada) ?? null;
+  const apunte = datos.apuntes.find((a) => a.id === apunteAbierto) ?? null;
 
   // Si la seleccionada desaparece del filtro (o se elimina), soltamos el detalle.
   useEffect(() => {
@@ -135,6 +189,12 @@ export function BibliotecaPanel({ onAbrirApunte }: { onAbrirApunte?(apunteId: st
       setSeleccionada(null);
     }
   }, [datos.grabaciones, seleccionada]);
+
+  useEffect(() => {
+    if (apunteAbierto && !datos.apuntes.some((a) => a.id === apunteAbierto)) {
+      setApunteAbierto(null);
+    }
+  }, [datos.apuntes, apunteAbierto]);
 
   return (
     <section className="panel panel-ancho">
@@ -144,7 +204,11 @@ export function BibliotecaPanel({ onAbrirApunte }: { onAbrirApunte?(apunteId: st
           <p className="sutil">
             {datos.grabaciones.length}{" "}
             {datos.grabaciones.length === 1 ? "grabación" : "grabaciones"}
-            {hayFiltros ? ` · ${filtradas.length} coinciden con el filtro` : ""}
+            {apuntes.length > 0 &&
+              ` · ${apuntes.length} ${apuntes.length === 1 ? "apunte" : "apuntes"}`}
+            {hayFiltros
+              ? ` · ${filtradas.length + apuntesFiltrados.length} coinciden con el filtro`
+              : ""}
           </p>
         </div>
         <div className="conmutador">
@@ -234,7 +298,7 @@ export function BibliotecaPanel({ onAbrirApunte }: { onAbrirApunte?(apunteId: st
         </div>
       )}
 
-      {datos.grabaciones.length === 0 && datos.clases.length === 0 ? (
+      {datos.grabaciones.length === 0 && apuntes.length === 0 && datos.clases.length === 0 ? (
         <p className="vacio">
           Todavía no hay nada. Crea una clase en la pestaña Clases, o graba
           directamente desde Grabar.
@@ -254,7 +318,7 @@ export function BibliotecaPanel({ onAbrirApunte }: { onAbrirApunte?(apunteId: st
                 <ResultadosApuntes
                   coincidencias={enApuntes}
                   apuntes={datos.apuntes}
-                  onAbrir={onAbrirApunte}
+                  onAbrir={elegirApunte}
                 />
               </>
             ) : vista === "pendientes" ? (
@@ -267,8 +331,8 @@ export function BibliotecaPanel({ onAbrirApunte }: { onAbrirApunte?(apunteId: st
               arbol.length === 0 ? (
                 <p className="vacio">
                   {hayFiltros
-                    ? "Ninguna grabación coincide con el filtro."
-                    : "Todavía no hay clases ni grabaciones."}
+                    ? "Nada coincide con el filtro."
+                    : "Todavía no hay clases, grabaciones ni apuntes."}
                 </p>
               ) : (
                 <>
@@ -334,18 +398,40 @@ export function BibliotecaPanel({ onAbrirApunte }: { onAbrirApunte?(apunteId: st
                                   <span className="sutil">{unidad.items.length}</span>
                                 </summary>
                                 {unidad.items.length === 0 ? (
-                                  <p className="rama-vacia sutil">Sin grabaciones.</p>
+                                  <p className="rama-vacia sutil">Sin grabaciones ni apuntes.</p>
                                 ) : (
-                                  <ul className="lista">
-                                    {unidad.items.map((g) => (
-                                      <FilaGrabacion
-                                        key={g.id}
-                                        grabacion={g}
-                                        activa={g.id === seleccionada}
-                                        onClick={() => setSeleccionada(g.id)}
-                                      />
-                                    ))}
-                                  </ul>
+                                  <div className="unidad-columnas">
+                                    <ColumnaUnidad
+                                      titulo="Grabaciones"
+                                      vacia="Sin grabaciones."
+                                      cantidad={unidad.items.filter((i) => !esApunte(i)).length}
+                                    >
+                                      {unidad.items
+                                        .filter((i): i is Grabacion => !esApunte(i))
+                                        .map((g) => (
+                                          <FilaGrabacion
+                                            key={g.id}
+                                            grabacion={g}
+                                            activa={g.id === seleccionada}
+                                            onClick={() => elegirGrabacion(g.id)}
+                                          />
+                                        ))}
+                                    </ColumnaUnidad>
+                                    <ColumnaUnidad
+                                      titulo="Apuntes"
+                                      vacia="Sin apuntes."
+                                      cantidad={unidad.items.filter(esApunte).length}
+                                    >
+                                      {unidad.items.filter(esApunte).map((a) => (
+                                        <FilaApunte
+                                          key={a.id}
+                                          apunte={a}
+                                          activo={a.id === apunteAbierto}
+                                          onClick={() => elegirApunte(a.id)}
+                                        />
+                                      ))}
+                                    </ColumnaUnidad>
+                                  </div>
                                 )}
                               </details>
                             );
@@ -376,11 +462,13 @@ export function BibliotecaPanel({ onAbrirApunte }: { onAbrirApunte?(apunteId: st
                 progresoConversion={conversiones[grabacion.id]}
                 resaltar={enTranscripciones ? busqueda.trim() : undefined}
                 onEliminada={() => setSeleccionada(null)}
-                onRecortada={setSeleccionada}
+                onRecortada={elegirGrabacion}
               />
+            ) : apunte ? (
+              <VistaApunte key={apunte.id} apunte={apunte} onCorregir={onCorregirApunte} />
             ) : (
               <p className="vacio">
-                Selecciona una grabación para escucharla y editarla.
+                Selecciona una grabación para escucharla, o un apunte para leerlo.
               </p>
             )}
           </div>
@@ -535,7 +623,8 @@ function FilaGrabacion({
     <li className={`item ${activa ? "activo" : ""}`} onClick={onClick}>
       <div className="item-texto">
         <strong>
-          {formatearFecha(grabacion.fechaISO)} · {formatearHora(grabacion.fechaISO)}
+          <Icono nombre="micro" tamano={13} /> {formatearFecha(grabacion.fechaISO)} ·{" "}
+          {formatearHora(grabacion.fechaISO)}
         </strong>
         <small className="sutil">
           {mostrarClase ? `${grabacion.claseNombre} · ` : ""}
@@ -562,5 +651,66 @@ function FilaGrabacion({
         </span>
       )}
     </li>
+  );
+}
+
+/**
+ * Un apunte escaneado dentro del árbol. No abre el panel de detalle —ese es
+ * para audio—: lleva al editor del apunte, en su propia pestaña.
+ */
+function FilaApunte({
+  apunte,
+  activo,
+  onClick,
+}: {
+  apunte: Apunte;
+  activo: boolean;
+  onClick(): void;
+}) {
+  const paginas = apunte.paginas.length;
+  return (
+    <li className={`item ${activo ? "activo" : ""}`} onClick={onClick}>
+      <div className="item-texto">
+        <strong>
+          <Icono nombre="apunte" tamano={13} /> {apunte.titulo}
+        </strong>
+        <small className="sutil">
+          {formatearFecha(apunte.fechaISO)} · {paginas}{" "}
+          {paginas === 1 ? "página" : "páginas"}
+          {apunte.nota ? ` · ${apunte.nota}` : ""}
+        </small>
+      </div>
+    </li>
+  );
+}
+
+/**
+ * Una de las dos columnas de una unidad. Se muestran las dos siempre, aunque
+ * una esté vacía: el hueco dice "acá no hay apuntes de esta unidad", que es
+ * información, y evita que las columnas bailen de lugar entre unidades.
+ */
+function ColumnaUnidad({
+  titulo,
+  vacia,
+  cantidad,
+  children,
+}: {
+  titulo: string;
+  vacia: string;
+  cantidad: number;
+  children: ReactNode;
+}) {
+  return (
+    <div className="unidad-columna">
+      <h5>
+        {titulo}
+        <span className="sutil">{cantidad}</span>
+      </h5>
+      {cantidad === 0 ? (
+        <p className="rama-vacia sutil">{vacia}</p>
+      ) : (
+        <ul className="lista">{children}</ul>
+      )}
+    </div>
   );
 }

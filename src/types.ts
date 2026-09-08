@@ -229,6 +229,11 @@ export interface Apunte {
   archivoTexto: string;
   tags: string[];
   /**
+   * Nota libre sobre el apunte, escrita por el usuario. Opcional: los apuntes
+   * guardados antes de que existiera el campo no la traen.
+   */
+  nota?: string;
+  /**
    * Id del apunte que este reemplaza cuando se vuelve a escanear la misma
    * hoja. El viejo no se borra: queda como versión anterior.
    */

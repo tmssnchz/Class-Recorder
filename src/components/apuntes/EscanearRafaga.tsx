@@ -11,7 +11,7 @@
  * destino (clase/unidad) y se junta con el último bloque que tenga ese mismo
  * destino; "Nuevo apunte" fuerza uno nuevo aunque el destino se repita.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 import { useStore } from "../../estado/store";
@@ -387,9 +387,16 @@ export function EscanearRafaga({
     resueltaSola,
   ]);
 
+  // Una tanda se entrega una sola vez. El efecto de abajo depende de props y
+  // del store, y guardar los apuntes cambia el store: sin este cerrojo se
+  // vuelve a disparar mientras el guardado todavía no terminó de desmontar la
+  // ráfaga, y la tanda entra duplicada en el índice.
+  const entregada = useRef(false);
+
   // Terminada la tanda, se arma un apunte por cada bloque que juntó al menos
   // una página y se devuelven todos juntos.
   useEffect(() => {
+    if (entregada.current) return;
     if (indice < orden.length) return;
 
     // Terminada la pasada, si algo quedó pendiente se recorre de nuevo esa
@@ -408,6 +415,7 @@ export function EscanearRafaga({
     );
     if (listos.length === 0) return;
 
+    entregada.current = true;
     onTerminar(
       listos.map((b) => {
         const c = datos.clases.find((x) => x.id === b.claseId) ?? null;

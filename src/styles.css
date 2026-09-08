@@ -731,9 +731,47 @@ kbd {
 
 .biblioteca-layout {
   display: grid;
-  grid-template-columns: minmax(300px, 400px) minmax(360px, 1fr);
+  /* La lista es más ancha que antes porque cada unidad se abre en dos columnas,
+     grabaciones y apuntes, y con 400px ninguna de las dos se leía. */
+  grid-template-columns: minmax(320px, 540px) minmax(360px, 1fr);
   gap: 20px;
   align-items: start;
+}
+
+/* Lo grabado y lo escaneado, lado a lado dentro de la unidad: son las dos
+   mitades de una misma clase y conviene verlas juntas, no una debajo de otra. */
+.unidad-columnas {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 1250px) {
+  .unidad-columnas {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.unidad-columna {
+  min-width: 0;
+}
+
+.unidad-columna h5 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 6px;
+  color: var(--texto-sutil);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.unidad-columna .item strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .columna-lista {
@@ -1770,6 +1808,13 @@ mark {
   line-height: 1.45;
 }
 
+/* Botón de descartar un aviso: al final de la línea, sin comprimir el texto. */
+.aviso .btn-mini {
+  flex: none;
+  align-self: center;
+  margin-left: auto;
+}
+
 .aviso span {
   flex: 1;
 }
@@ -2107,10 +2152,97 @@ mark {
   border: 1px solid var(--borde);
   border-radius: var(--radio);
   background: #fff;
+  cursor: zoom-in;
 }
 
 .hoja .acciones-fila {
   margin-top: 8px;
+}
+
+.mover-hoja {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.mover-hoja select {
+  min-width: 0;
+  flex: 1;
+}
+
+/* La hoja a tamaño real, con scroll. Ajustarla a la ventana la devolvería al
+   tamaño en que justamente no se lee la letra. */
+.hoja-zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.82);
+  cursor: zoom-out;
+  overflow: auto;
+}
+
+.hoja-zoom img {
+  display: block;
+  margin: 0 auto;
+  max-width: none;
+  border-radius: 4px;
+  background: #fff;
+}
+
+/* La nota del apunte en la lista: una línea, recortada. Lo largo se lee en el
+   editor, acá solo tiene que servir para reconocer el apunte. */
+.nota-apunte {
+  overflow: hidden;
+  color: var(--texto-sutil);
+  font-style: italic;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Visor de apunte de la Biblioteca: miniaturas a la izquierda, hoja al lado. */
+.apunte-cuerpo {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  margin-bottom: 12px;
+}
+
+.apunte-cuerpo .tira-paginas {
+  max-height: 52vh;
+}
+
+.apunte-cuerpo .tira-paginas .miniatura img {
+  height: 70px;
+}
+
+/* El texto reconocido, para leer y no para corregir: los saltos de línea de la
+   hoja se respetan igual que en el editor. */
+.texto-apunte {
+  margin: 0;
+  padding: 12px;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  background: var(--superficie-2);
+  border-radius: var(--radio);
+}
+
+.area-nota {
+  min-height: 52px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--texto);
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  resize: vertical;
 }
 
 .texto-reconocido {
