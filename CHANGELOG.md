@@ -4,6 +4,38 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Este proyecto todavía no sigue versionado semántico estricto (está en `0.x`,
 así que cualquier versión puede traer cambios incompatibles).
 
+## [0.9.0] - 2026-09-08
+
+### Añadido
+
+- **Lector de apuntes con zoom.** El visor mostraba la hoja del ancho que le
+  sobrara a la columna de detalle —unos 400 px— y a ese tamaño la letra
+  manuscrita no se lee. El lector nuevo toma lo que hacen bien los
+  visualizadores de documentos: **ajusta al ancho y no al alto**, que es lo que
+  decide si se lee o no; ofrece **pasos de zoom con nombre** (Ajustar, 50%,
+  75%, 100%, 150%…) en vez de un control continuo, porque nadie calibra
+  porcentajes; **recuerda el zoom** entre hojas y entre apuntes; hace el
+  **scroll dentro del lector**, así los controles no se van de la pantalla al
+  acercarse; y pone el papel **sobre fondo oscuro**, que ancla el ojo a su
+  borde.
+- **Modo lectura**: la lista se aparta y la hoja se queda con todo el ancho de
+  la ventana. Se vuelve con el mismo botón.
+- **Destacar y anotar sobre la hoja.** Se arrastra un rectángulo encima del
+  apunte: sin texto queda como destacado, con texto es una anotación que salta
+  al pasarle el mouse por encima. Son el mismo gesto y el mismo modelo de
+  datos, porque son la misma cosa con o sin nota. Las coordenadas se guardan en
+  **fracción de la hoja y no en píxeles**, así la marca queda donde se puso con
+  cualquier zoom, en cualquier pantalla, y seguiría valiendo si algún día se
+  reescanea la hoja a otro dpi. Las miniaturas avisan cuántas marcas tiene cada
+  hoja.
+
+### Cambiado
+
+- **Los contadores se leen como contadores.** El número suelto al final de un
+  título ("Teoría del Consumidor 12") se leía como cualquier otra cosa. En las
+  columnas de la Biblioteca ahora va delante del sustantivo ("11 grabaciones",
+  "1 apunte") y en el árbol va en pastilla.
+
 ## [0.8.0] - 2026-09-08
 
 ### Añadido
