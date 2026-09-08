@@ -374,7 +374,7 @@ export function VistaApunte({ apunte, lectura, onAlternarLectura, onCorregir }: 
                   {marcas.map((m) => (
                     <div
                       key={m.id}
-                      className={`marca ${m.nota ? "marca-con-nota" : ""}`}
+                      className={`marca-hoja ${m.nota ? "marca-hoja-con-nota" : ""}`}
                       style={{
                         left: `${m.x * 100}%`,
                         top: `${m.y * 100}%`,
@@ -385,10 +385,10 @@ export function VistaApunte({ apunte, lectura, onAlternarLectura, onCorregir }: 
                       {/* Al pasar por encima: la nota si la tiene, y siempre la
                           forma de borrarla. Sin esto una marca mal puesta no
                           habría manera de sacarla. */}
-                      <span className="marca-globo">
-                        {m.nota && <span className="marca-texto">{m.nota}</span>}
+                      <span className="marca-hoja-globo">
+                        {m.nota && <span className="marca-hoja-texto">{m.nota}</span>}
                         <button
-                          className="marca-borrar"
+                          className="marca-hoja-borrar"
                           title="Quitar esta marca"
                           onPointerDown={(e) => e.stopPropagation()}
                           onClick={(e) => {
@@ -404,7 +404,7 @@ export function VistaApunte({ apunte, lectura, onAlternarLectura, onCorregir }: 
 
                   {trazo && (
                     <div
-                      className="marca marca-trazo"
+                      className="marca-hoja marca-hoja-trazo"
                       style={{
                         left: Math.min(trazo.x0, trazo.x1),
                         top: Math.min(trazo.y0, trazo.y1),
@@ -417,7 +417,7 @@ export function VistaApunte({ apunte, lectura, onAlternarLectura, onCorregir }: 
               </div>
 
               {redactando && (
-                <div className="marca-editor">
+                <div className="marca-hoja-editor">
                   <textarea
                     autoFocus
                     className="area-nota"

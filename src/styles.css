@@ -2324,11 +2324,13 @@ mark {
   cursor: crosshair;
 }
 
-/* ------------------------------------------- marcas sobre la hoja */
+/* --------------------------------- marcas sobre la hoja de un apunte */
+/* `marca-hoja` y no `marca`: `.marca` ya es el logo de la barra lateral,
+   y pisarlo con `position: absolute` lo sacaba del flujo, encima del menú. */
 
 /* Amarillo translúcido con `multiply`: se ve la tinta debajo, igual que un
    resaltador de verdad. Un relleno opaco taparía justo lo que se destacó. */
-.marca {
+.marca-hoja {
   position: absolute;
   border: 1px solid rgba(190, 140, 0, 0.85);
   border-radius: 2px;
@@ -2337,7 +2339,7 @@ mark {
 /* El relleno va en un pseudo-elemento y no en `.marca`: `mix-blend-mode` crea
    contexto de apilado y se llevaría puesto también el globo de la nota, que
    sobre el fondo oscuro del lector quedaría lavado. */
-.marca::before {
+.marca-hoja::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -2347,25 +2349,25 @@ mark {
 
 /* La que tiene nota se distingue sin pasarle el mouse: si no, no habría forma
    de saber dónde hay algo escrito. */
-.marca-con-nota {
+.marca-hoja-con-nota {
   border-color: rgba(47, 111, 237, 0.9);
 }
 
-.marca-con-nota::before {
+.marca-hoja-con-nota::before {
   background: rgba(91, 141, 239, 0.3);
 }
 
-.marca-trazo {
+.marca-hoja-trazo {
   border-style: dashed;
 }
 
-.marca-trazo::before {
+.marca-hoja-trazo::before {
   background: rgba(255, 214, 51, 0.18);
 }
 
 /* Globo de la nota. `title` nativo tarda casi un segundo y no acepta el botón
    de borrar, así que va a mano. */
-.marca-globo {
+.marca-hoja-globo {
   position: absolute;
   bottom: calc(100% + 6px);
   left: 0;
@@ -2384,17 +2386,17 @@ mark {
   box-shadow: var(--sombra);
 }
 
-.marca:hover .marca-globo {
+.marca-hoja:hover .marca-hoja-globo {
   display: flex;
 }
 
-.marca-texto {
+.marca-hoja-texto {
   font-size: 13px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.marca-borrar {
+.marca-hoja-borrar {
   display: grid;
   flex: none;
   place-items: center;
@@ -2408,19 +2410,19 @@ mark {
   cursor: pointer;
 }
 
-.marca-borrar:hover {
+.marca-hoja-borrar:hover {
   color: var(--peligro);
   background: var(--peligro-suave);
 }
 
-.marca-editor {
+.marca-hoja-editor {
   margin: 10px 0 4px;
   padding: 10px;
   background: var(--superficie-2);
   border-radius: var(--radio);
 }
 
-.marca-editor .area-nota {
+.marca-hoja-editor .area-nota {
   min-height: 64px;
   margin-bottom: 8px;
 }

@@ -512,8 +512,14 @@ export function OrganizarFotos({
       {repetidos.size > 0 && (
         <div className="aviso aviso-cambio-destino">
           <Icono nombre="alerta" />
+          {/* El número entre paréntesis se leía como "hay 191 repetidos" en vez
+              de "el repetido es el 191". Va con el sustantivo delante. */}
           <span>
-            Hay números de página repetidos ({[...repetidos].sort((a, b) => a - b).join(", ")}):
+            {repetidos.size === 1
+              ? `El número de página ${[...repetidos][0]} aparece en más de una hoja: `
+              : `Estos números de página aparecen en más de una hoja — ${[...repetidos]
+                  .sort((a, b) => a - b)
+                  .join(", ")} —: `}
             son hojas de corridas de impresión distintas. Ahí el número no alcanza para
             ordenar, hay que mirar el contenido.
           </span>
