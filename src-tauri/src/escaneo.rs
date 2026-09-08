@@ -167,14 +167,18 @@ pub struct AnalisisFoto {
     /// Esquinas de la hoja en píxeles de la foto, en orden TL, TR, BR, BL.
     pub esquinas: Vec<Esquina>,
     /// Cómo se encontraron las esquinas:
-    ///   "marcadores" los cuatro ArUco de la plantilla — recorte exacto
-    ///   "contraste"  el borde del papel, sin plantilla — aproximado
-    ///   "ninguna"    no se encontró nada; las esquinas van a mano
+    ///   "marcadores"           tres o cuatro ArUco — recorte exacto
+    ///   "marcadores-parciales" solo dos ArUco — ubicado y a escala, sin corregir
+    ///                          la inclinación de la cámara
+    ///   "contraste"            el borde del papel — aproximado
+    ///   "ninguna"              no se encontró nada; las esquinas van a mano
     pub fuente: String,
     /// Geometría con la que se calculó el recorte: la del papel configurado en
-    /// Ajustes. null cuando se detectó por contraste, porque ahí las esquinas
-    /// salen del borde del papel y no de ninguna plantilla — el tamaño lo
-    /// termina de elegir el usuario.
+    /// Ajustes, con la cara que le toca al número de página.
+    ///
+    /// null solo cuando no se leyó ningún marcador, porque ahí no se sabe si la
+    /// hoja es de la plantilla ni por qué cara va — el tamaño lo termina de
+    /// elegir el usuario.
     pub geometria: Option<GeometriaPlantilla>,
     pub pagina: Option<u32>,
     /// Varianza del laplaciano: bajo = foto movida o desenfocada.
@@ -191,6 +195,15 @@ pub struct AnalisisFoto {
 pub const NITIDEZ_MINIMA: f32 = 60.0;
 
 fn abrir_con_orientacion(ruta: &Path) -> Result<DynamicImage, String> {
+    // HEIC —lo que sale de un iPhone de fábrica— no lo lee `image`, lo decodifica
+    // Windows. Y vuelve de ahí **ya orientado**: WIC resuelve el `irot` del
+    // contenedor HEIF por su cuenta pero deja el EXIF con su valor original, así
+    // que aplicárselo de nuevo acá rotaría la hoja 90°. Ver `imagen_windows`.
+    #[cfg(target_os = "windows")]
+    if crate::imagen_windows::es_de_windows(ruta) {
+        return crate::imagen_windows::abrir(ruta);
+    }
+
     let lector = image::ImageReader::open(ruta)
         .map_err(|e| format!("No se pudo abrir {}: {e}", ruta.display()))?
         .with_guessed_format()
@@ -239,56 +252,87 @@ fn brillo_de(gris: &GrayImage) -> f32 {
 
 // ----------------------------------------------- detección con marcadores
 
-/// Reduce los marcadores leídos a los de una sola página y los ordena por
-/// esquina.
+/// Los marcadores de una sola página, ordenados por esquina.
 ///
-/// Devuelve los cuatro centros en orden de esquina, qué esquina se estimó (si
-/// alguna) y el número de página.
-fn agrupar_marcadores(
-    leidos: &[MarcadorLeido],
-) -> Option<([(f32, f32); 4], Option<usize>, u32)> {
+/// Se guarda aunque haya uno solo: el número de página vale por sí mismo
+/// —permite ordenar la hoja dentro del apunte— incluso cuando no alcanza para
+/// calcular el recorte. Medido sobre una tanda real de 68 fotos de hojas
+/// apiladas, 27 traían uno o dos marcadores: descartarlas enteras, como se
+/// hacía antes, tiraba el número de página de casi la mitad de la tanda.
+struct MarcadoresDePagina {
+    pagina: u32,
+    /// Centro de cada esquina en píxeles; `None` la que no se vio.
+    por_esquina: [Option<(f32, f32)>; 4],
+}
+
+impl MarcadoresDePagina {
+    fn leidos(&self) -> usize {
+        self.por_esquina.iter().filter(|e| e.is_some()).count()
+    }
+
+    /// Los cuatro centros, estimando el que falte si se vieron tres.
+    ///
+    /// Los cuatro forman un rectángulo en milímetros —el margen de anillado
+    /// corre un lado entero, no una esquina suelta— así que bajo una
+    /// aproximación afín el que falta es la esquina opuesta del paralelogramo.
+    ///
+    /// ponytail: es afín, no proyectivo. Con la foto de frente el error es de
+    /// pocos píxeles; con la cámara muy inclinada se nota, y por eso se avisa en
+    /// la interfaz y quedan las esquinas para corregir a mano.
+    fn completar(&self) -> Option<([(f32, f32); 4], Option<usize>)> {
+        let mut c = self.por_esquina;
+        let faltante = c.iter().position(|e| e.is_none());
+        let estimado = match faltante {
+            Some(i) if self.leidos() == 3 => {
+                let a = c[(i + 1) % 4]?;
+                let o = c[(i + 2) % 4]?;
+                let b = c[(i + 3) % 4]?;
+                c[i] = Some((a.0 + b.0 - o.0, a.1 + b.1 - o.1));
+                Some(i)
+            }
+            Some(_) => return None,
+            None => None,
+        };
+        Some(([c[0]?, c[1]?, c[2]?, c[3]?], estimado))
+    }
+
+    /// Las dos esquinas leídas, cuando son exactamente dos.
+    fn par(&self) -> Option<((usize, (f32, f32)), (usize, (f32, f32)))> {
+        if self.leidos() != 2 {
+            return None;
+        }
+        let mut vistos = self
+            .por_esquina
+            .iter()
+            .enumerate()
+            .filter_map(|(i, c)| c.map(|c| (i, c)));
+        Some((vistos.next()?, vistos.next()?))
+    }
+}
+
+/// Reduce los marcadores leídos a los de una sola página.
+///
+/// Cuando se ven hojas distintas en la misma foto —pasa al fotografiar la pila y
+/// que asome la de abajo— gana la que tenga más marcadores, que es la que está
+/// arriba y la que el usuario quiso fotografiar. A igualdad, la de número más
+/// bajo, para que el resultado no dependa del orden de detección.
+fn agrupar_marcadores(leidos: &[MarcadorLeido]) -> Option<MarcadoresDePagina> {
     let mut paginas: Vec<u32> = leidos.iter().map(|m| m.pagina).collect();
     paginas.sort_unstable();
     paginas.dedup();
 
-    for pagina in paginas {
-        let mut por_esquina: [Option<(f32, f32)>; 4] = [None; 4];
-        for m in leidos.iter().filter(|m| m.pagina == pagina) {
-            if m.esquina < 4 {
-                por_esquina[m.esquina] = Some(m.centro);
+    paginas
+        .into_iter()
+        .map(|pagina| {
+            let mut por_esquina: [Option<(f32, f32)>; 4] = [None; 4];
+            for m in leidos.iter().filter(|m| m.pagina == pagina) {
+                if m.esquina < 4 {
+                    por_esquina[m.esquina] = Some(m.centro);
+                }
             }
-        }
-
-        // Los cuatro centros forman un rectángulo en milímetros —el margen de
-        // anillado corre un lado entero, no una esquina suelta— así que bajo
-        // una aproximación afín el que falta es la esquina opuesta del
-        // paralelogramo.
-        //
-        // ponytail: es afín, no proyectivo. Con la foto de frente el error es
-        // de pocos píxeles; con la cámara muy inclinada se nota, y por eso se
-        // avisa en la interfaz y quedan las esquinas para corregir a mano.
-        let faltante = por_esquina.iter().position(|e| e.is_none());
-        let estimado = match faltante {
-            Some(i) if por_esquina.iter().filter(|e| e.is_some()).count() == 3 => {
-                let a = por_esquina[(i + 1) % 4].unwrap();
-                let o = por_esquina[(i + 2) % 4].unwrap();
-                let b = por_esquina[(i + 3) % 4].unwrap();
-                por_esquina[i] = Some((a.0 + b.0 - o.0, a.1 + b.1 - o.1));
-                Some(i)
-            }
-            Some(_) => continue,
-            None => None,
-        };
-
-        let centros = [
-            por_esquina[0]?,
-            por_esquina[1]?,
-            por_esquina[2]?,
-            por_esquina[3]?,
-        ];
-        return Some((centros, estimado, pagina));
-    }
-    None
+            MarcadoresDePagina { pagina, por_esquina }
+        })
+        .max_by_key(|g| (g.leidos(), std::cmp::Reverse(g.pagina)))
 }
 
 /// Esquinas del papel a partir de los centros de los marcadores: se extiende
@@ -303,6 +347,62 @@ fn esquinas_desde_centros(
     for (i, v) in [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)].iter().enumerate() {
         let (x, y) = mm_a_px * *v;
         esquinas[i] = Esquina { x, y };
+    }
+    Some(esquinas)
+}
+
+/// Esquinas del papel a partir de **dos** marcadores.
+///
+/// Dos puntos con su posición conocida en milímetros determinan una semejanza:
+/// traslación, rotación y escala uniforme. Lo que no determinan es la
+/// perspectiva, así que el resultado es una estimación —vale si la foto se sacó
+/// más o menos de frente y se va corriendo a medida que la cámara se inclina—.
+///
+/// Aun así es muchísimo mejor que el camino que había antes para este caso. Con
+/// menos de tres marcadores se caía a la detección por contraste, y una hoja
+/// fotografiada encima de una pila de hojas blancas no tiene ningún borde que
+/// detectar: en la tanda real que motivó esto, devolvía cuadriláteros
+/// degenerados con dos vértices en el mismo píxel. Esto deja el recorte casi
+/// puesto y al usuario le queda corregirlo, no marcarlo desde cero.
+fn esquinas_desde_dos(
+    a: (usize, (f32, f32)),
+    b: (usize, (f32, f32)),
+    geometria: GeometriaPlantilla,
+) -> Option<[Esquina; 4]> {
+    let centros_mm = geometria.centros_marcador_mm();
+    let (pa_mm, pb_mm) = (centros_mm[a.0], centros_mm[b.0]);
+    let (pa_px, pb_px) = (a.1, b.1);
+
+    let (dmx, dmy) = (pb_mm.0 - pa_mm.0, pb_mm.1 - pa_mm.1);
+    let (dpx, dpy) = (pb_px.0 - pa_px.0, pb_px.1 - pa_px.1);
+    let largo_mm = dmx.hypot(dmy);
+    let largo_px = dpx.hypot(dpy);
+    // Dos marcadores en el mismo punto, o dos lecturas de la misma esquina: no
+    // hay semejanza que sacar de ahí.
+    if largo_mm < 1.0 || largo_px < 1.0 {
+        return None;
+    }
+
+    let escala = largo_px / largo_mm;
+    // Ángulo entre el segmento en milímetros y el mismo segmento en la foto.
+    let giro = dpy.atan2(dpx) - dmy.atan2(dmx);
+    let (sin, cos) = giro.sin_cos();
+
+    let mut esquinas = [Esquina { x: 0.0, y: 0.0 }; 4];
+    for (i, (vx, vy)) in [
+        (0.0, 0.0),
+        (geometria.ancho_mm, 0.0),
+        (geometria.ancho_mm, geometria.alto_mm),
+        (0.0, geometria.alto_mm),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let (rx, ry) = (vx - pa_mm.0, vy - pa_mm.1);
+        esquinas[i] = Esquina {
+            x: pa_px.0 + escala * (rx * cos - ry * sin),
+            y: pa_px.1 + escala * (rx * sin + ry * cos),
+        };
     }
     Some(esquinas)
 }
@@ -503,50 +603,76 @@ fn analizar(ruta: &str, geometria_defecto: GeometriaPlantilla) -> Result<Analisi
         ));
     }
 
-    if let Some((centros, estimado, pagina)) = agrupar_marcadores(&marcadores) {
-        // La cara importa: en el reverso el margen de anillado está del borde
-        // opuesto y los marcadores corridos con él.
-        let g = geometria_de_pagina(geometria_defecto, pagina);
-        if let Some(esquinas) = esquinas_desde_centros(&centros, g) {
-            if let Some(i) = estimado {
-                advertencias.push(format!(
-                    "No se pudo leer el marcador de la esquina {}. Se estimó a partir de los otros tres, así que el recorte puede estar unos milímetros corrido: revísalo antes de confirmar. Suele pasar cuando esa esquina quedó con sombra, curvada por el anillado, o impresa muy clara.",
-                    NOMBRES_ESQUINA[i]
-                ));
+    let grupo = agrupar_marcadores(&marcadores);
+    // El número de página sobrevive aunque no alcance para recortar: con él se
+    // ordena la hoja dentro del apunte, que es la mitad del trabajo de una
+    // importación grande. Antes se perdía en cuanto faltaba un tercer marcador.
+    let pagina = grupo.as_ref().map(|g| g.pagina);
+    // La cara importa: en el reverso el margen de anillado está del borde
+    // opuesto y los marcadores corridos con él.
+    let geometria_pagina = pagina.map(|p| geometria_de_pagina(geometria_defecto, p));
+
+    if let (Some(g), Some(geo)) = (&grupo, geometria_pagina) {
+        if let Some((centros, estimado)) = g.completar() {
+            if let Some(esquinas) = esquinas_desde_centros(&centros, geo) {
+                if let Some(i) = estimado {
+                    advertencias.push(format!(
+                        "No se pudo leer el marcador de la esquina {}. Se estimó a partir de los otros tres, así que el recorte puede estar unos milímetros corrido: revísalo antes de confirmar. Suele pasar cuando esa esquina quedó con sombra, curvada por el anillado, o impresa muy clara.",
+                        NOMBRES_ESQUINA[i]
+                    ));
+                }
+                return Ok(AnalisisFoto {
+                    ancho,
+                    alto,
+                    vista_previa,
+                    esquinas: esquinas.to_vec(),
+                    fuente: "marcadores".into(),
+                    geometria: Some(geo),
+                    pagina,
+                    nitidez,
+                    brillo,
+                    hojas_detectadas: hojas.max(1),
+                    advertencias,
+                });
             }
-            return Ok(AnalisisFoto {
-                ancho,
-                alto,
-                vista_previa,
-                esquinas: esquinas.to_vec(),
-                fuente: "marcadores".into(),
-                geometria: Some(g),
-                pagina: Some(pagina),
-                nitidez,
-                brillo,
-                hojas_detectadas: hojas.max(1),
-                advertencias,
-            });
+        }
+
+        // Dos marcadores: alcanza para una semejanza, no para la perspectiva.
+        if let Some((a, b)) = g.par() {
+            if let Some(esquinas) = esquinas_desde_dos(a, b, geo) {
+                advertencias.push(format!(
+                    "Solo se leyeron 2 de los 4 marcadores ({} y {}). El recorte se calculó con esos dos: queda bien ubicado y a escala, pero no corrige la inclinación de la cámara. Revisa las cuatro esquinas antes de confirmar.",
+                    NOMBRES_ESQUINA[a.0], NOMBRES_ESQUINA[b.0]
+                ));
+                return Ok(AnalisisFoto {
+                    ancho,
+                    alto,
+                    vista_previa,
+                    esquinas: esquinas.to_vec(),
+                    fuente: "marcadores-parciales".into(),
+                    geometria: Some(geo),
+                    pagina,
+                    nitidez,
+                    brillo,
+                    hojas_detectadas: hojas.max(1),
+                    advertencias,
+                });
+            }
         }
     }
 
     // Se vieron marcadores pero no alcanzaron para armar una hoja: decir
     // cuáles faltaron ayuda a repetir la foto, un "2 de 4" no.
-    if !marcadores.is_empty() {
-        let mut vistas = [false; 4];
-        for m in &marcadores {
-            if m.esquina < 4 {
-                vistas[m.esquina] = true;
-            }
-        }
+    if let Some(g) = &grupo {
         let faltantes: Vec<&str> = (0..4)
-            .filter(|i| !vistas[*i])
+            .filter(|i| g.por_esquina[*i].is_none())
             .map(|i| NOMBRES_ESQUINA[i])
             .collect();
         advertencias.push(format!(
-            "Solo se leyeron {} de los 4 marcadores: faltaron los de la esquina {}. El recorte se hizo por el borde del papel, así que revísalo antes de guardar. Suele pasar cuando esa esquina quedó con sombra, curvada por el anillado, o impresa muy clara.",
-            4 - faltantes.len(),
-            faltantes.join(" y la ")
+            "Solo se leyó {} de los 4 marcadores: faltaron los de la esquina {}. Se reconoció que es la página {}, pero el recorte hubo que buscarlo por el borde del papel: revísalo antes de guardar. Suele pasar cuando la hoja se fotografía encima de otras, o esa esquina quedó con sombra o impresa muy clara.",
+            g.leidos(),
+            faltantes.join(", la "),
+            g.pagina,
         ));
     }
 
@@ -557,8 +683,8 @@ fn analizar(ruta: &str, geometria_defecto: GeometriaPlantilla) -> Result<Analisi
             vista_previa,
             esquinas: esquinas.to_vec(),
             fuente: "contraste".into(),
-            geometria: None,
-            pagina: None,
+            geometria: geometria_pagina,
+            pagina,
             nitidez,
             brillo,
             hojas_detectadas: hojas.max(1),
@@ -581,8 +707,8 @@ fn analizar(ruta: &str, geometria_defecto: GeometriaPlantilla) -> Result<Analisi
                     Esquina { x: 0.0, y: alto as f32 },
                 ],
                 fuente: "ninguna".into(),
-                geometria: None,
-                pagina: None,
+                geometria: geometria_pagina,
+                pagina,
                 nitidez,
                 brillo,
                 hojas_detectadas: hojas.max(1),
@@ -905,6 +1031,24 @@ mod tests {
         lado_anillado: LadoAnillado::Izquierda,
     };
 
+    /// Papel para las herramientas de banco: el de `PAPEL=ancho x alto x anillado`
+    /// si está definido, si no B5. Sin esto hay que recompilar para probar con el
+    /// papel que el usuario tenga configurado de verdad, que nunca es el de la
+    /// constante.
+    fn papel_del_entorno() -> GeometriaPlantilla {
+        let Ok(v) = std::env::var("PAPEL") else { return B5 };
+        let n: Vec<f32> = v.split('x').filter_map(|p| p.trim().parse().ok()).collect();
+        match n[..] {
+            [ancho, alto, anillado] => GeometriaPlantilla {
+                ancho_mm: ancho,
+                alto_mm: alto,
+                margen_anillado_mm: anillado,
+                lado_anillado: LadoAnillado::Izquierda,
+            },
+            _ => B5,
+        }
+    }
+
     #[test]
     fn el_anillado_corre_solo_las_esquinas_de_su_lado() {
         let c = B5.centros_marcador_mm();
@@ -946,6 +1090,76 @@ mod tests {
                 e.y
             );
         }
+    }
+
+    /// Con dos marcadores el recorte tiene que salir exacto mientras la foto no
+    /// tenga perspectiva: una semejanza queda completamente determinada por dos
+    /// puntos. Es el caso que rescata a 19 de las 68 fotos de la tanda que
+    /// motivó esto.
+    #[test]
+    fn con_dos_marcadores_se_ubica_la_hoja() {
+        let centros_mm = B5.centros_marcador_mm();
+        // Foto de frente pero girada 20° y a escala: rotación, escala y
+        // traslación, sin inclinación de cámara.
+        let (giro, escala) = (20.0f32.to_radians(), 7.3f32);
+        let (sin, cos) = giro.sin_cos();
+        let mover = |(x, y): (f32, f32)| {
+            (
+                140.0 + escala * (x * cos - y * sin),
+                260.0 + escala * (x * sin + y * cos),
+            )
+        };
+
+        // Las dos esquinas de un lado, que es el caso real: la hoja apoyada
+        // sobre otras deja media plantilla sin contraste.
+        let a = (1usize, mover(centros_mm[1]));
+        let b = (2usize, mover(centros_mm[2]));
+        let esquinas = esquinas_desde_dos(a, b, B5).expect("dos puntos determinan la semejanza");
+
+        for (e, v) in esquinas.iter().zip([
+            (0.0, 0.0),
+            (B5.ancho_mm, 0.0),
+            (B5.ancho_mm, B5.alto_mm),
+            (0.0, B5.alto_mm),
+        ]) {
+            let (ex, ey) = mover(v);
+            assert!(
+                (e.x - ex).abs() < 0.5 && (e.y - ey).abs() < 0.5,
+                "esquina ({}, {}) debería ser ({ex}, {ey})",
+                e.x,
+                e.y
+            );
+        }
+
+        // Dos lecturas en el mismo punto no determinan nada y no pueden devolver
+        // una hoja de tamaño cero disfrazada de recorte válido.
+        let repetido = (3usize, mover(centros_mm[1]));
+        assert!(esquinas_desde_dos(a, repetido, B5).is_none());
+    }
+
+    /// Cuando en la foto asoma la hoja de abajo de la pila se ven dos páginas.
+    /// Gana la que tenga más marcadores: es la de arriba, la que se quiso
+    /// fotografiar. Pasó en dos de las 68 fotos de la tanda real.
+    #[test]
+    fn con_dos_hojas_a_la_vista_gana_la_que_se_ve_mejor() {
+        let leidos = vec![
+            MarcadorLeido { pagina: 155, esquina: 0, centro: (10.0, 10.0) },
+            MarcadorLeido { pagina: 153, esquina: 0, centro: (20.0, 20.0) },
+            MarcadorLeido { pagina: 153, esquina: 1, centro: (30.0, 20.0) },
+            MarcadorLeido { pagina: 153, esquina: 2, centro: (30.0, 40.0) },
+        ];
+        let g = agrupar_marcadores(&leidos).expect("hay marcadores");
+        assert_eq!(g.pagina, 153);
+        assert_eq!(g.leidos(), 3);
+
+        // Un solo marcador igual sirve: el número de página se conserva aunque
+        // no alcance para recortar.
+        let uno = vec![MarcadorLeido { pagina: 191, esquina: 3, centro: (5.0, 5.0) }];
+        let g = agrupar_marcadores(&uno).expect("un marcador ya es una página");
+        assert_eq!(g.pagina, 191);
+        assert_eq!(g.leidos(), 1);
+        assert!(g.completar().is_none(), "con uno no se puede completar");
+        assert!(g.par().is_none(), "con uno no hay par");
     }
 
     #[test]
@@ -1313,7 +1527,7 @@ mod tests {
             );
         }
 
-        let analisis = analizar(&ruta, B5).expect("se analiza");
+        let analisis = analizar(&ruta, papel_del_entorno()).expect("se analiza");
         println!("fuente: {}", analisis.fuente);
         println!("geometria: {:?}", analisis.geometria);
         println!("pagina: {:?}", analisis.pagina);
@@ -1321,6 +1535,83 @@ mod tests {
         for a in &analisis.advertencias {
             println!("aviso: {a}");
         }
+    }
+
+    /// Inventario de una carpeta entera de fotos reales.
+    ///
+    ///   CARPETA=... cargo test inventario -- --ignored --nocapture
+    ///
+    /// Existe para decidir con datos y no con intuición antes de una importación
+    /// grande: cuántas hojas se resuelven solas, cuántas van a pedir corrección
+    /// a mano, y si los números de página alcanzan para ordenar la tanda o se
+    /// repiten entre corridas de impresión.
+    #[test]
+    #[ignore]
+    fn inventario_de_una_carpeta_real() {
+        use std::path::PathBuf;
+        let carpeta = std::env::var("CARPETA").expect("define CARPETA");
+        let mut rutas: Vec<PathBuf> = std::fs::read_dir(&carpeta)
+            .expect("se lee la carpeta")
+            .flatten()
+            .map(|e| e.path())
+            .filter(|r| {
+                r.is_file()
+                    && r.extension()
+                        .and_then(|e| e.to_str())
+                        .map(|e| {
+                            let e = e.to_ascii_lowercase();
+                            ["jpg", "jpeg", "png", "heic", "heif", "webp"].contains(&e.as_str())
+                        })
+                        .unwrap_or(false)
+            })
+            .collect();
+        rutas.sort();
+        let papel = papel_del_entorno();
+        println!("{} fotos en {carpeta} · papel {papel:?}\n", rutas.len());
+
+        let siguiente = std::sync::atomic::AtomicUsize::new(0);
+        let filas = std::sync::Mutex::new(Vec::<(String, String)>::new());
+
+        std::thread::scope(|s| {
+            for _ in 0..4 {
+                s.spawn(|| loop {
+                    let i = siguiente.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(ruta) = rutas.get(i) else { return };
+                    let nombre = ruta.file_name().unwrap().to_string_lossy().to_string();
+
+                    let fila = match analizar(&ruta.to_string_lossy(), papel) {
+                        Err(e) => format!("ERROR {e}"),
+                        Ok(a) => format!(
+                            "{:<21} pagina {:>6} · nitidez {:>5.0} · {} hoja(s){}",
+                            a.fuente,
+                            a.pagina.map(|p| p.to_string()).unwrap_or_else(|| "?".into()),
+                            a.nitidez,
+                            a.hojas_detectadas,
+                            if a.advertencias.is_empty() { "" } else { " · con avisos" },
+                        ),
+                    };
+                    filas.lock().unwrap().push((nombre, fila));
+                });
+            }
+        });
+
+        let mut filas = filas.into_inner().unwrap();
+        filas.sort();
+        for (nombre, fila) in &filas {
+            println!("{nombre}  {fila}");
+        }
+
+        let cuenta = |inicio: &str| filas.iter().filter(|(_, f)| f.starts_with(inicio)).count();
+        let con_pagina = filas.iter().filter(|(_, f)| !f.contains("pagina      ?")).count();
+        println!(
+            "\nresumen de {} fotos:\n  {:>3} recorte exacto por marcadores\n  {:>3} ubicadas con dos marcadores (revisar esquinas)\n  {:>3} por contraste del papel\n  {:>3} sin nada: esquinas a mano\n  {:>3} con número de página conocido",
+            filas.len(),
+            cuenta("marcadores  "),
+            cuenta("marcadores-parciales"),
+            cuenta("contraste"),
+            cuenta("ninguna"),
+            con_pagina,
+        );
     }
 
     /// Herramienta de banco: toma una foto real y deja el escaneo rectificado en
@@ -1335,13 +1626,14 @@ mod tests {
         let salida = std::env::var("SALIDA").expect("define SALIDA");
         let modo = std::env::var("MODO").unwrap_or_else(|_| "color".into());
 
-        let a = analizar(&ruta, B5).expect("se analiza");
-        println!("fuente {} · geometria {:?}", a.fuente, a.geometria);
+        let papel = papel_del_entorno();
+        let a = analizar(&ruta, papel).expect("se analiza");
+        println!("fuente {} · pagina {:?} · geometria {:?}", a.fuente, a.pagina, a.geometria);
         let info = rectificar(PedidoRectificar {
             ruta,
             salida,
             esquinas: a.esquinas.clone(),
-            geometria: a.geometria.unwrap_or(B5),
+            geometria: a.geometria.unwrap_or(papel),
             dpi: 200,
             calidad: 88,
             modo,

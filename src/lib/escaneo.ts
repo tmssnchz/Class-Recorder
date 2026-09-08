@@ -42,14 +42,17 @@ export interface AnalisisFoto {
   /** TL, TR, BR, BL en píxeles de la foto. */
   esquinas: Esquina[];
   /**
-   * Cómo se encontraron las esquinas: por los cuatro marcadores ArUco de la
-   * plantilla (recorte exacto), por el borde del papel (aproximado), o nada.
+   * Cómo se encontraron las esquinas: por tres o cuatro marcadores ArUco de la
+   * plantilla (recorte exacto), por solo dos (bien ubicado y a escala, pero sin
+   * corregir la inclinación de la cámara), por el borde del papel (aproximado),
+   * o nada.
    */
-  fuente: "marcadores" | "contraste" | "ninguna";
+  fuente: "marcadores" | "marcadores-parciales" | "contraste" | "ninguna";
   /**
    * Geometría con la que se calculó el recorte: la del papel configurado en
-   * Ajustes. La hoja no lleva la suya. null cuando se detectó por contraste,
-   * porque ahí las esquinas salen del borde del papel y no de una plantilla.
+   * Ajustes, con la cara que le toca al número de página. La hoja no lleva la
+   * suya. null solo cuando no se leyó ningún marcador, porque ahí no se sabe ni
+   * si es una hoja de la plantilla ni por qué cara va.
    */
   geometria: GeometriaPlantilla | null;
   pagina: number | null;

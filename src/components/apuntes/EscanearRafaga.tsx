@@ -453,10 +453,16 @@ export function EscanearRafaga({
             <span>
               {analisis.fuente === "marcadores" &&
                 `Marcadores leídos: hoja ${analisis.pagina}. Recortada con el papel configurado (${analisis.geometria?.anchoMm} × ${analisis.geometria?.altoMm} mm).`}
+              {analisis.fuente === "marcadores-parciales" &&
+                `Se leyeron 2 marcadores: hoja ${analisis.pagina}. El recorte queda bien ubicado y a escala, pero sin corregir la inclinación de la cámara: revisa las esquinas.`}
               {analisis.fuente === "contraste" &&
-                "Sin marcadores: los bordes se detectaron por contraste. Revisa las esquinas antes de confirmar."}
+                (analisis.pagina === null
+                  ? "Sin marcadores: los bordes se detectaron por contraste. Revisa las esquinas antes de confirmar."
+                  : `Es la hoja ${analisis.pagina}, pero no se leyeron marcadores suficientes para recortarla: los bordes se detectaron por contraste. Revisa las esquinas antes de confirmar.`)}
               {analisis.fuente === "ninguna" &&
-                "No se encontró el borde de la hoja. Marca las cuatro esquinas a mano."}
+                (analisis.pagina === null
+                  ? "No se encontró el borde de la hoja. Marca las cuatro esquinas a mano."
+                  : `Es la hoja ${analisis.pagina}, pero no se encontró su borde. Marca las cuatro esquinas a mano.`)}
             </span>
           </div>
 
@@ -565,10 +571,10 @@ export function EscanearRafaga({
           )}
 
           <div className="rafaga-controles">
-            {/* Sin marcadores no se sabe si la foto es de una hoja de la
+            {/* Sin ningún marcador no se sabe si la foto es de una hoja de la
                 plantilla: lo elige el usuario y queda para las siguientes de
-                la tanda. */}
-            {analisis.fuente !== "marcadores" && (
+                la tanda. Con marcadores —aunque sean dos— el papel ya se sabe. */}
+            {analisis.geometria === null && (
               <label className="selector-fila">
                 <span>Tamaño de papel</span>
                 <select
