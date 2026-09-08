@@ -519,7 +519,7 @@ dependencies = [
 
 [[package]]
 name = "class-recorder"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "aruco-rs",
  "futures-util",
