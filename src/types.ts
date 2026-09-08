@@ -179,6 +179,31 @@ export interface GeometriaPlantilla {
   ladoAnillado: LadoAnillado;
 }
 
+/**
+ * Un rectángulo dibujado sobre una hoja al repasarla.
+ *
+ * Destacar y anotar son la misma cosa con o sin texto: un destacado es un
+ * rectángulo con `nota` vacía, y una anotación es el mismo rectángulo con algo
+ * escrito, que aparece al pasarle el mouse por encima. Un solo modelo evita dos
+ * interacciones de dibujo que harían exactamente lo mismo.
+ *
+ * Las coordenadas van en fracción del tamaño de la página (0 a 1), no en
+ * píxeles: así la marca queda donde la pusiste con cualquier zoom, en cualquier
+ * pantalla, y sigue valiendo si algún día se vuelve a escanear la hoja a otro
+ * dpi.
+ */
+export interface MarcaHoja {
+  id: string;
+  /** Esquina superior izquierda, 0 a 1 sobre el ancho y el alto de la hoja. */
+  x: number;
+  y: number;
+  ancho: number;
+  alto: number;
+  /** Vacía = solo destacado. Con texto = anotación. */
+  nota: string;
+  creadaEn: string; // ISO
+}
+
 /** Una hoja digitalizada dentro de un apunte. */
 export interface PaginaApunte {
   id: string;
@@ -204,6 +229,11 @@ export interface PaginaApunte {
   soloVisual: boolean;
   /** Avisos del análisis de la foto (movida, oscura, sin marcadores…). */
   advertencias: string[];
+  /**
+   * Lo que el usuario marcó encima de la hoja al repasar. Opcional: las
+   * páginas escaneadas antes de que existieran no lo traen.
+   */
+  marcas?: MarcaHoja[];
 }
 
 /**

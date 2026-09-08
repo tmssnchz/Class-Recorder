@@ -265,7 +265,7 @@ export function ApuntesPanel({ apunteInicial, onApunteAbierto }: Props) {
                   <summary>
                     <span className="punto" style={{ background: clase.color }} />
                     {clase.nombre}
-                    <span className="sutil">
+                    <span className="cuenta" title="Apuntes de esta clase">
                       {clase.unidades.reduce((n, u) => n + u.items.length, 0)}
                     </span>
                   </summary>
@@ -285,7 +285,9 @@ export function ApuntesPanel({ apunteInicial, onApunteAbierto }: Props) {
                       >
                         <summary>
                           {unidad.nombre}
-                          <span className="sutil">{unidad.items.length}</span>
+                          <span className="cuenta" title="Apuntes de esta unidad">
+                            {unidad.items.length}
+                          </span>
                         </summary>
                         {unidad.items.length === 0 ? (
                           <p className="rama-vacia sutil">Sin apuntes.</p>

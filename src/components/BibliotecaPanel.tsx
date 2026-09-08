@@ -47,6 +47,9 @@ export function BibliotecaPanel({
   // La columna de detalle muestra una grabación o un apunte: elegir uno suelta
   // el otro, igual que en cualquier lista de un solo panel de detalle.
   const [apunteAbierto, setApunteAbierto] = useState<string | null>(null);
+  // Modo lectura: la lista se aparta y la hoja se queda con todo el ancho.
+  // Solo tiene sentido con un apunte abierto, así que se suelta al cerrarlo.
+  const [lectura, setLectura] = useState(false);
   // Colapsado por defecto; se pierde al reiniciar (no vale la pena persistirlo).
   const [expandidas, setExpandidas] = useState<Set<string>>(new Set());
   const [enTranscripciones, setEnTranscripciones] = useState(false);
@@ -172,6 +175,7 @@ export function BibliotecaPanel({
 
   const elegirGrabacion = (id: string) => {
     setApunteAbierto(null);
+    setLectura(false);
     setSeleccionada(id);
   };
 
@@ -193,6 +197,7 @@ export function BibliotecaPanel({
   useEffect(() => {
     if (apunteAbierto && !datos.apuntes.some((a) => a.id === apunteAbierto)) {
       setApunteAbierto(null);
+      setLectura(false);
     }
   }, [datos.apuntes, apunteAbierto]);
 
@@ -304,7 +309,7 @@ export function BibliotecaPanel({
           directamente desde Grabar.
         </p>
       ) : (
-        <div className="biblioteca-layout">
+        <div className={`biblioteca-layout ${apunte && lectura ? "en-lectura" : ""}`}>
           <div className="columna-lista">
             {enTranscripciones && busqueda.trim().length >= 3 ? (
               <>
@@ -367,7 +372,10 @@ export function BibliotecaPanel({
                             style={{ background: clase.color }}
                           />
                           {clase.nombre}
-                          <span className="sutil">
+                          <span
+                            className="cuenta"
+                            title="Grabaciones y apuntes de esta clase"
+                          >
                             {clase.unidades.reduce(
                               (n, u) => n + u.items.length,
                               0,
@@ -395,14 +403,20 @@ export function BibliotecaPanel({
                               >
                                 <summary>
                                   {unidad.nombre}
-                                  <span className="sutil">{unidad.items.length}</span>
+                                  <span
+                                    className="cuenta"
+                                    title="Grabaciones y apuntes de esta unidad"
+                                  >
+                                    {unidad.items.length}
+                                  </span>
                                 </summary>
                                 {unidad.items.length === 0 ? (
                                   <p className="rama-vacia sutil">Sin grabaciones ni apuntes.</p>
                                 ) : (
                                   <div className="unidad-columnas">
                                     <ColumnaUnidad
-                                      titulo="Grabaciones"
+                                      singular="grabación"
+                                      plural="grabaciones"
                                       vacia="Sin grabaciones."
                                       cantidad={unidad.items.filter((i) => !esApunte(i)).length}
                                     >
@@ -418,7 +432,8 @@ export function BibliotecaPanel({
                                         ))}
                                     </ColumnaUnidad>
                                     <ColumnaUnidad
-                                      titulo="Apuntes"
+                                      singular="apunte"
+                                      plural="apuntes"
                                       vacia="Sin apuntes."
                                       cantidad={unidad.items.filter(esApunte).length}
                                     >
@@ -465,7 +480,13 @@ export function BibliotecaPanel({
                 onRecortada={elegirGrabacion}
               />
             ) : apunte ? (
-              <VistaApunte key={apunte.id} apunte={apunte} onCorregir={onCorregirApunte} />
+              <VistaApunte
+                key={apunte.id}
+                apunte={apunte}
+                lectura={lectura}
+                onAlternarLectura={() => setLectura((v) => !v)}
+                onCorregir={onCorregirApunte}
+              />
             ) : (
               <p className="vacio">
                 Selecciona una grabación para escucharla, o un apunte para leerlo.
@@ -690,21 +711,24 @@ function FilaApunte({
  * información, y evita que las columnas bailen de lugar entre unidades.
  */
 function ColumnaUnidad({
-  titulo,
+  singular,
+  plural,
   vacia,
   cantidad,
   children,
 }: {
-  titulo: string;
+  singular: string;
+  plural: string;
   vacia: string;
   cantidad: number;
   children: ReactNode;
 }) {
   return (
     <div className="unidad-columna">
+      {/* El número va delante del sustantivo — "11 grabaciones" — porque
+          suelto, al final del título, se lee como cualquier otra cosa. */}
       <h5>
-        {titulo}
-        <span className="sutil">{cantidad}</span>
+        {cantidad} {cantidad === 1 ? singular : plural}
       </h5>
       {cantidad === 0 ? (
         <p className="rama-vacia sutil">{vacia}</p>
