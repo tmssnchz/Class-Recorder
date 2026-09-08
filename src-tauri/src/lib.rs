@@ -3,6 +3,9 @@ mod descargas;
 mod energia;
 mod escaneo;
 mod htr;
+/// Decodifica con Windows lo que `image` no sabe leer, hoy HEIC.
+#[cfg(target_os = "windows")]
+mod imagen_windows;
 mod marcadores;
 mod importar;
 mod respaldo;

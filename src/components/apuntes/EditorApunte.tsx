@@ -12,12 +12,12 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 
 import { useApuntes, claveTarea } from "../../estado/apuntes";
 import { useStore } from "../../estado/store";
-import { renumerar } from "../../lib/escaneo";
+import { moverPaginaAApunte, renumerar } from "../../lib/escaneo";
 import { exportarApunte } from "../../lib/exportarApunte";
 import { guardarTexto } from "../../lib/htr";
 import { formatearBytes } from "../../lib/format";
 import { buscarModeloHtr } from "../../lib/htrModelos";
-import { progresoReconocimiento } from "../../lib/apuntes";
+import { borrarArchivosApunte, progresoReconocimiento, vigentes } from "../../lib/apuntes";
 import type { Apunte, PaginaApunte } from "../../types";
 import { Icono } from "../ui/Icono";
 
@@ -29,27 +29,53 @@ const ETIQUETA_ESTADO: Record<string, string> = {
   error: "error",
 };
 
+/**
+ * El aviso sobre la calidad del reconocimiento sirve la primera vez, no en cada
+ * hoja. Se descarta para siempre, y en localStorage y no en la config porque es
+ * una preferencia de esta interfaz, no un dato del proyecto.
+ */
+const CLAVE_AVISO = "apuntes:aviso-reconocimiento-descartado";
+
 interface Props {
   apunte: Apunte;
   onCerrar(): void;
 }
 
 export function EditorApunte({ apunte, onCerrar }: Props) {
-  const { actualizarApunte } = useStore();
+  const { datos, actualizarApunte, quitarApunte } = useStore();
   const { tareas, encolar, reencolar, descartarError } = useApuntes();
   const [activa, setActiva] = useState(0);
   const [borrador, setBorrador] = useState("");
+  const [nota, setNota] = useState(apunte.nota ?? "");
+  const [ampliada, setAmpliada] = useState(false);
+  const [avisoOculto, setAvisoOculto] = useState(
+    () => localStorage.getItem(CLAVE_AVISO) === "1",
+  );
 
   const paginas = [...apunte.paginas].sort((a, b) => a.numero - b.numero);
   const pagina: PaginaApunte | undefined = paginas[activa];
   const tarea = pagina ? tareas[claveTarea(apunte.id, pagina.id)] : undefined;
   const progreso = progresoReconocimiento(apunte);
 
+  // Los otros apuntes vigentes, que son los destinos posibles de una hoja.
+  const destinos = vigentes(datos.apuntes)
+    .filter((a) => a.id !== apunte.id)
+    .sort((a, b) => b.fechaISO.localeCompare(a.fechaISO));
+
   // El borrador se resincroniza cuando cambia la página o cuando el
   // reconocimiento termina y trae texto nuevo para la que se está mirando.
   useEffect(() => {
     setBorrador(pagina?.texto ?? "");
   }, [pagina?.id, pagina?.texto]);
+
+  useEffect(() => {
+    setNota(apunte.nota ?? "");
+  }, [apunte.id, apunte.nota]);
+
+  // Al borrar o mover la última hoja, la posición activa puede quedar fuera.
+  useEffect(() => {
+    if (activa >= paginas.length && paginas.length > 0) setActiva(paginas.length - 1);
+  }, [activa, paginas.length]);
 
   const guardarPagina = async (cambios: Partial<PaginaApunte>) => {
     if (!pagina) return;
@@ -69,6 +95,43 @@ export function EditorApunte({ apunte, onCerrar }: Props) {
     const archivoTexto = await guardarTexto(actualizado);
     await actualizarApunte(apunte.id, { paginas: renumeradas, archivoTexto });
     setActiva(hacia);
+  };
+
+  /**
+   * Manda la hoja a otro apunte, con sus archivos. Si era la última, el apunte
+   * de origen ya no tiene nada: se borra en vez de dejar una entrada vacía —es
+   * también la forma de fusionar dos apuntes que salieron partidos.
+   */
+  const moverAOtroApunte = async (destinoId: string) => {
+    if (!pagina) return;
+    const destino = datos.apuntes.find((a) => a.id === destinoId);
+    if (!destino) return;
+
+    const repartidas = await moverPaginaAApunte(apunte, pagina.id, destino);
+    const conDestino = { ...destino, paginas: repartidas.destino };
+    await actualizarApunte(destino.id, {
+      paginas: repartidas.destino,
+      archivoTexto: await guardarTexto(conDestino),
+    });
+
+    if (repartidas.origen.length === 0) {
+      await borrarArchivosApunte({ ...apunte, paginas: [] });
+      await quitarApunte(apunte.id);
+      onCerrar();
+      return;
+    }
+
+    const conOrigen = { ...apunte, paginas: repartidas.origen };
+    await actualizarApunte(apunte.id, {
+      paginas: repartidas.origen,
+      archivoTexto: await guardarTexto(conOrigen),
+    });
+    setActiva((i) => Math.min(i, repartidas.origen.length - 1));
+  };
+
+  const descartarAviso = () => {
+    localStorage.setItem(CLAVE_AVISO, "1");
+    setAvisoOculto(true);
   };
 
   return (
@@ -100,14 +163,30 @@ export function EditorApunte({ apunte, onCerrar }: Props) {
         </div>
       </div>
 
-      <p className="aviso aviso-info">
-        <Icono nombre="alerta" />
-        <span>
-          El reconocimiento de letra manuscrita nunca sale perfecto. Lee el texto
-          al lado de la hoja y corrige lo que haga falta: lo que quede acá es lo
-          que va a encontrar la búsqueda de la biblioteca.
-        </span>
-      </p>
+      <textarea
+        className="area-nota"
+        value={nota}
+        placeholder="Nota del apunte: de qué clase salió, qué falta, qué revisar…"
+        onChange={(e) => setNota(e.target.value)}
+        onBlur={() => {
+          if (nota === (apunte.nota ?? "")) return;
+          void actualizarApunte(apunte.id, { nota });
+        }}
+      />
+
+      {!avisoOculto && (
+        <p className="aviso aviso-info">
+          <Icono nombre="alerta" />
+          <span>
+            El reconocimiento de letra manuscrita nunca sale perfecto. Lee el
+            texto al lado de la hoja y corrige lo que haga falta: lo que quede
+            acá es lo que va a encontrar la búsqueda de la biblioteca.
+          </span>
+          <button className="btn btn-mini" onClick={descartarAviso}>
+            Entendido
+          </button>
+        </p>
+      )}
 
       <div className="editor-cuerpo">
         <aside className="tira-paginas">
@@ -131,7 +210,12 @@ export function EditorApunte({ apunte, onCerrar }: Props) {
         {pagina && (
           <>
             <div className="hoja">
-              <img src={convertFileSrc(pagina.archivo)} alt={`Página ${pagina.numero}`} />
+              <img
+                src={convertFileSrc(pagina.archivo)}
+                alt={`Página ${pagina.numero}`}
+                title="Click para verla a tamaño real"
+                onClick={() => setAmpliada(true)}
+              />
               <div className="acciones-fila">
                 <button
                   className="btn"
@@ -147,7 +231,29 @@ export function EditorApunte({ apunte, onCerrar }: Props) {
                 >
                   Después →
                 </button>
+                <button className="btn" onClick={() => setAmpliada(true)}>
+                  <Icono nombre="lupa" />
+                  Ampliar
+                </button>
               </div>
+              {destinos.length > 0 && (
+                <label className="mover-hoja sutil">
+                  Mover esta hoja a
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) void moverAOtroApunte(e.target.value);
+                    }}
+                  >
+                    <option value="">otro apunte…</option>
+                    {destinos.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.titulo} ({a.paginas.length})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
 
             <div className="texto-reconocido">
@@ -231,6 +337,14 @@ export function EditorApunte({ apunte, onCerrar }: Props) {
           </>
         )}
       </div>
+
+      {/* A tamaño real y con scroll: es lo que hace falta para leer la letra,
+          y ajustarla a la ventana sería volver al tamaño que ya no se lee. */}
+      {ampliada && pagina && (
+        <div className="hoja-zoom" onClick={() => setAmpliada(false)}>
+          <img src={convertFileSrc(pagina.archivo)} alt={`Página ${pagina.numero}`} />
+        </div>
+      )}
     </div>
   );
 }

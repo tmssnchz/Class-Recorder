@@ -57,6 +57,30 @@ export function vigentes(apuntes: Apunte[]): Apunte[] {
   return apuntes.filter((a) => !reemplazados.has(a.id));
 }
 
+/**
+ * Quita del índice los apuntes repetidos: los que comparten `carpeta`.
+ *
+ * Dos apuntes nunca comparten carpeta de forma legítima — `carpetaLibre` le
+ * inventa un nombre nuevo (`_2`, `_3`) a cada escaneo —, así que un empate es
+ * siempre el mismo apunte anotado dos veces. Pasaba cuando la ráfaga entregaba
+ * la tanda más de una vez; se arregló en el origen, pero los índices que ya
+ * quedaron duplicados hay que limpiarlos igual.
+ *
+ * Gana el registro con más páginas reconocidas: es el que se estuvo usando, y
+ * borrar el otro no toca ningún archivo (los duplicados apuntan a los mismos).
+ */
+export function sinDuplicados(apuntes: Apunte[]): Apunte[] {
+  const mejor = new Map<string, Apunte>();
+  for (const a of apuntes) {
+    const clave = a.carpeta.toLowerCase();
+    const previo = mejor.get(clave);
+    if (!previo || progresoReconocimiento(a).hechas > progresoReconocimiento(previo).hechas) {
+      mejor.set(clave, a);
+    }
+  }
+  return apuntes.filter((a) => mejor.get(a.carpeta.toLowerCase()) === a);
+}
+
 /** Cuántas páginas ya tienen texto reconocido. */
 export function progresoReconocimiento(apunte: Apunte): { hechas: number; total: number } {
   return {

@@ -9,11 +9,11 @@
  */
 import assert from "node:assert/strict";
 
-import { esSoloVisual, ordenarPorQr, renumerar, textoDe } from "./escaneo.ts";
+import { esSoloVisual, ordenarPorMarcador, renumerar, textoDe } from "./escaneo.ts";
 import {
   areaEscribibleMm,
   caraReverso,
-  centrosQrMm,
+  centrosMarcadorMm,
   geometriaDePagina,
   ordenReverso,
   aMm,
@@ -29,6 +29,7 @@ import {
 import {
   apuntesVisiblesDe,
   progresoReconocimiento,
+  sinDuplicados,
   versionesAnteriores,
   vigentes,
 } from "./apuntes.ts";
@@ -43,7 +44,7 @@ const B5 = {
 // ------------------------------------------------- geometría de la plantilla
 
 {
-  const c = centrosQrMm(B5);
+  const c = centrosMarcadorMm(B5);
   // Los mismos números que espera el test de Rust
   // (`el_anillado_corre_solo_las_esquinas_de_su_lado`): 8 de borde + 14/2 de
   // medio marcador = 15, más 18 de anillado del lado izquierdo.
@@ -65,7 +66,7 @@ const B5 = {
 {
   // Con el anillado arriba se corre la fila de arriba, no la columna izquierda.
   const arriba = { ...B5, ladoAnillado: "arriba" };
-  const c = centrosQrMm(arriba);
+  const c = centrosMarcadorMm(arriba);
   assert.equal(c[0][0], 15, "sin anillado a la izquierda");
   assert.equal(c[0][1], 33, "la fila de arriba corrida por el anillado");
   assert.equal(c[2][1], 235, "la de abajo sin tocar");
@@ -93,7 +94,7 @@ const B5 = {
   assert.equal(papelDe({ ...B5, anchoMm: 169, altoMm: 244 }), null);
 
   // Y la geometría a medida sigue dando marcadores dentro de la hoja.
-  for (const [x, y] of centrosQrMm(universitario)) {
+  for (const [x, y] of centrosMarcadorMm(universitario)) {
     assert.ok(x > 0 && x < 173 && y > 0 && y < 250, `(${x}, ${y}) fuera de la hoja`);
   }
 }
@@ -117,7 +118,7 @@ const B5 = {
   const yArriba = (B5.ladoAnillado === "arriba" ? B5.margenAnilladoMm : 0) + 5;
   const yAbajo = B5.altoMm - 4;
 
-  for (const [i, [cx, cy]] of centrosQrMm(B5).entries()) {
+  for (const [i, [cx, cy]] of centrosMarcadorMm(B5).entries()) {
     const izq = cx - LADO_MARCADOR_MM / 2;
     const der = cx + LADO_MARCADOR_MM / 2;
     const arr = cy - LADO_MARCADOR_MM / 2;
@@ -154,8 +155,8 @@ const B5 = {
 
   // Y el reverso corre los marcadores el margen de anillado entero: si el
   // escaneo usara la cara equivocada, el recorte saldría corrido justo eso.
-  const frente = centrosQrMm(geometriaDePagina(B5, 7));
-  const reverso = centrosQrMm(geometriaDePagina(B5, 8));
+  const frente = centrosMarcadorMm(geometriaDePagina(B5, 7));
+  const reverso = centrosMarcadorMm(geometriaDePagina(B5, 8));
   assert.equal(frente[0][0] - reverso[0][0], B5.margenAnilladoMm, "el reverso corre los marcadores");
 
   // Con el anillado arriba no hay nada que invertir: el volteo del dúplex
@@ -214,8 +215,8 @@ const B5 = {
 
   // El espejo del frente: lo que el frente reserva a la izquierda, el reverso
   // lo reserva a la derecha, a la misma distancia del borde.
-  const frente = centrosQrMm(B5);
-  const reverso = centrosQrMm(atras);
+  const frente = centrosMarcadorMm(B5);
+  const reverso = centrosMarcadorMm(atras);
   assert.equal(frente[0][0], B5.anchoMm - reverso[1][0]);
   assert.equal(frente[1][0], B5.anchoMm - reverso[0][0]);
 
@@ -284,7 +285,7 @@ const pagina = (id, numero, extra = {}) => ({
     ["b", 5],
     ["c", 6],
   ]);
-  const ordenadas = ordenarPorQr(desordenadas, numeros);
+  const ordenadas = ordenarPorMarcador(desordenadas, numeros);
   assert.deepEqual(
     ordenadas.map((p) => p.id),
     ["b", "c", "a"],
@@ -299,14 +300,14 @@ const pagina = (id, numero, extra = {}) => ({
 
 {
   // Sin marcadores, se respeta el orden de escaneo y quedan al final de las que sí tienen.
-  const mezcla = [pagina("sinqr", 1), pagina("conqr", 2)];
+  const mezcla = [pagina("sin-marcador", 1), pagina("con-marcador", 2)];
   const numeros = new Map([
-    ["sinqr", null],
-    ["conqr", 9],
+    ["sin-marcador", null],
+    ["con-marcador", 9],
   ]);
   assert.deepEqual(
-    ordenarPorQr(mezcla, numeros).map((p) => p.id),
-    ["conqr", "sinqr"],
+    ordenarPorMarcador(mezcla, numeros).map((p) => p.id),
+    ["con-marcador", "sin-marcador"],
   );
 }
 
@@ -412,4 +413,40 @@ const apunte = (id, extra = {}) => ({
   assert.deepEqual(progresoReconocimiento(a), { hechas: 1, total: 2 });
 }
 
-console.log("apuntes: 21 casos OK");
+// ------------------------------------------------------- índice duplicado
+
+{
+  // Dos registros de la misma carpeta son el mismo apunte anotado dos veces.
+  // Gana el que tiene más páginas reconocidas: es el que se estuvo usando.
+  const flojo = apunte("dup1", {
+    carpeta: "C:/x/mismo",
+    paginas: [pagina("p1", 1), pagina("p2", 2)],
+  });
+  const bueno = apunte("dup2", {
+    carpeta: "C:/x/mismo",
+    paginas: [pagina("p1", 1, { motorHtr: "glm-ocr" }), pagina("p2", 2)],
+  });
+  const otro = apunte("solo", { carpeta: "C:/x/otro" });
+
+  assert.deepEqual(
+    sinDuplicados([flojo, bueno, otro]).map((a) => a.id),
+    ["dup2", "solo"],
+    "se conserva el duplicado con más texto reconocido",
+  );
+  assert.deepEqual(
+    sinDuplicados([bueno, flojo, otro]).map((a) => a.id),
+    ["dup2", "solo"],
+    "y no depende del orden en que estén en el índice",
+  );
+  // Carpetas distintas nunca son duplicados, aunque compartan título.
+  const a1 = apunte("a1", { carpeta: "C:/x/uno" });
+  const a2 = apunte("a2", { carpeta: "C:/x/uno_2" });
+  assert.equal(sinDuplicados([a1, a2]).length, 2);
+  // Windows no distingue mayúsculas en las rutas: sí son la misma carpeta.
+  assert.equal(
+    sinDuplicados([apunte("m1", { carpeta: "C:/X/Uno" }), a1]).length,
+    1,
+  );
+}
+
+console.log("apuntes: 25 casos OK");

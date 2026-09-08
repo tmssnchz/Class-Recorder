@@ -10,7 +10,7 @@
  *   carpeta_raiz/{clase}/{unidad}/materiales/apuntes/{titulo}/pagina-01.jpg
  */
 import { invoke } from "@tauri-apps/api/core";
-import { copyFile, exists, mkdir, remove } from "@tauri-apps/plugin-fs";
+import { copyFile, exists, mkdir, remove, rename } from "@tauri-apps/plugin-fs";
 
 // Extensiones explícitas: el test corre con `node --experimental-strip-types`,
 // sin el resolver de Vite.
@@ -42,14 +42,17 @@ export interface AnalisisFoto {
   /** TL, TR, BR, BL en píxeles de la foto. */
   esquinas: Esquina[];
   /**
-   * Cómo se encontraron las esquinas: por los cuatro marcadores ArUco de la
-   * plantilla (recorte exacto), por el borde del papel (aproximado), o nada.
+   * Cómo se encontraron las esquinas: por tres o cuatro marcadores ArUco de la
+   * plantilla (recorte exacto), por solo dos (bien ubicado y a escala, pero sin
+   * corregir la inclinación de la cámara), por el borde del papel (aproximado),
+   * o nada.
    */
-  fuente: "marcadores" | "contraste" | "ninguna";
+  fuente: "marcadores" | "marcadores-parciales" | "contraste" | "ninguna";
   /**
    * Geometría con la que se calculó el recorte: la del papel configurado en
-   * Ajustes. La hoja no lleva la suya. null cuando se detectó por contraste,
-   * porque ahí las esquinas salen del borde del papel y no de una plantilla.
+   * Ajustes, con la cara que le toca al número de página. La hoja no lleva la
+   * suya. null solo cuando no se leyó ningún marcador, porque ahí no se sabe ni
+   * si es una hoja de la plantilla ni por qué cara va.
    */
   geometria: GeometriaPlantilla | null;
   pagina: number | null;
@@ -82,6 +85,12 @@ interface PedidoRectificar {
   dpi: number;
   calidad: number;
   modo: ModoEscaneo;
+  /**
+   * Cuartos de vuelta horarios a aplicarle al recorte. Solo hacen falta cuando
+   * las esquinas no vinieron de los marcadores: ahí la homografía ya deja la
+   * hoja de pie sola. Ver `giroAutomatico` en `organizar.ts`.
+   */
+  cuartos: number;
 }
 
 export const rectificarFoto = (pedido: PedidoRectificar) =>
@@ -158,6 +167,7 @@ export async function digitalizarFoto(
   geometria: GeometriaPlantilla,
   destino: DestinoApunte,
   config: Config,
+  cuartos = 0,
 ): Promise<PaginaApunte> {
   const opciones = config.apuntes;
   if (!(await exists(destino.carpeta))) {
@@ -173,6 +183,7 @@ export async function digitalizarFoto(
     dpi: opciones.dpiEscaneo,
     calidad: opciones.calidadEscaneo,
     modo: opciones.modoEscaneo,
+    cuartos,
   });
 
   if (info.bytes === 0) {
@@ -221,18 +232,82 @@ export function renumerar(paginas: PaginaApunte[]): PaginaApunte[] {
 }
 
 /**
+ * Nombre libre dentro de una carpeta, agregando _2, _3… antes de la extensión.
+ * Los nombres de página se repiten entre apuntes (`pagina-01.jpg` está en
+ * todos), así que mover una hoja de un apunte a otro casi siempre choca.
+ */
+async function rutaLibre(carpeta: string, nombre: string): Promise<string> {
+  const punto = nombre.lastIndexOf(".");
+  const base = punto === -1 ? nombre : nombre.slice(0, punto);
+  const extension = punto === -1 ? "" : nombre.slice(punto);
+  let ruta = unir(carpeta, nombre);
+  let intento = 2;
+  while (await exists(ruta)) {
+    ruta = unir(carpeta, `${base}_${intento++}${extension}`);
+  }
+  return ruta;
+}
+
+/**
+ * Mueve una hoja de un apunte a otro, llevándose sus archivos.
+ *
+ * Los archivos se mueven de verdad y no solo la entrada del índice: si la
+ * página siguiera viviendo en la carpeta del apunte de origen, borrar ese
+ * apunte se llevaría puesta una hoja que ya no le pertenece.
+ *
+ * El nombre en destino se elige libre y no se renumera el archivo, igual que
+ * en `renumerar`: el número de página vive en el índice, no en la ruta.
+ *
+ * Devuelve las páginas ya renumeradas de los dos apuntes; guardarlas en el
+ * índice es cosa de quien llama.
+ */
+export async function moverPaginaAApunte(
+  origen: Apunte,
+  paginaId: string,
+  destino: Apunte,
+): Promise<{ origen: PaginaApunte[]; destino: PaginaApunte[] }> {
+  const pagina = origen.paginas.find((p) => p.id === paginaId);
+  if (!pagina || origen.id === destino.id) {
+    return { origen: origen.paginas, destino: destino.paginas };
+  }
+
+  if (!(await exists(destino.carpeta))) await mkdir(destino.carpeta, { recursive: true });
+  const archivo = await rutaLibre(destino.carpeta, nombreArchivo(pagina.archivo));
+  await rename(pagina.archivo, archivo);
+
+  let original = pagina.original;
+  if (original) {
+    const carpetaOriginales = unir(destino.carpeta, "originales");
+    if (!(await exists(carpetaOriginales))) {
+      await mkdir(carpetaOriginales, { recursive: true });
+    }
+    const ruta = await rutaLibre(carpetaOriginales, nombreArchivo(original));
+    await rename(original, ruta);
+    original = ruta;
+  }
+
+  const ordenadas = [...destino.paginas].sort((a, b) => a.numero - b.numero);
+  return {
+    origen: renumerar(
+      [...origen.paginas].sort((a, b) => a.numero - b.numero).filter((p) => p.id !== paginaId),
+    ),
+    destino: renumerar([...ordenadas, { ...pagina, archivo, original }]),
+  };
+}
+
+/**
  * Ordena por el número de página que traían los marcadores de la hoja. Las que
  * no traen ninguno quedan al final, en el orden en que se escanearon, para que
  * el usuario las acomode a mano.
  */
-export function ordenarPorQr(
+export function ordenarPorMarcador(
   paginas: PaginaApunte[],
-  numerosQr: Map<string, number | null>,
+  numerosPagina: Map<string, number | null>,
 ): PaginaApunte[] {
-  const conQr = paginas.filter((p) => numerosQr.get(p.id) != null);
-  const sinQr = paginas.filter((p) => numerosQr.get(p.id) == null);
-  conQr.sort((a, b) => (numerosQr.get(a.id) ?? 0) - (numerosQr.get(b.id) ?? 0));
-  return renumerar([...conQr, ...sinQr]);
+  const conNumero = paginas.filter((p) => numerosPagina.get(p.id) != null);
+  const sinNumero = paginas.filter((p) => numerosPagina.get(p.id) == null);
+  conNumero.sort((a, b) => (numerosPagina.get(a.id) ?? 0) - (numerosPagina.get(b.id) ?? 0));
+  return renumerar([...conNumero, ...sinNumero]);
 }
 
 /**

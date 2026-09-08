@@ -42,15 +42,19 @@ de cada proyecto, directamente desde la app.
   faster-whisper — corriendo como procesos externos para no bloquear la
   interfaz, con progreso en tiempo real leído directamente del stdout/stderr
   del proceso.
-- **Biblioteca** con vista de árbol (clase › unidad › grabación) y de
-  calendario (mensual/semanal, con indicador de pendientes de transcribir),
-  reproductor con marcas de tiempo, etiquetas y búsqueda de texto dentro de
-  todas las transcripciones.
+- **Biblioteca** con vista de árbol (clase › unidad, con las grabaciones y los
+  apuntes de esa unidad en dos columnas) y de calendario (mensual/semanal, con
+  indicador de pendientes de transcribir), reproductor con marcas de tiempo,
+  etiquetas y búsqueda de texto dentro de todas las transcripciones. Es donde
+  se lee todo: una grabación se escucha y un apunte se mira, en la misma
+  columna de detalle.
 - **Apuntes escritos a mano**: se fotografía la hoja con el celular, la app
-  detecta las cuatro esquinas (con o sin los marcadores QR de su plantilla
+  detecta las cuatro esquinas (con o sin los marcadores de su plantilla
   imprimible), corrige la perspectiva, limpia sombras y reconoce el texto
   manuscrito con un modelo local. El texto queda editable y entra en la misma
-  búsqueda que las transcripciones.
+  búsqueda que las transcripciones. Ese trabajo —recortar, ordenar, reconocer,
+  corregir— vive en la pestaña **Digitalizar**; leer el resultado, en la
+  Biblioteca.
 - **Exportación** a PDF, Word y Markdown (pensado para pegar en un LLM o un
   centro de estudios).
 - **Respaldo completo a .zip**, con o sin audio.

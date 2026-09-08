@@ -4,6 +4,60 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Este proyecto todavía no sigue versionado semántico estricto (está en `0.x`,
 así que cualquier versión puede traer cambios incompatibles).
 
+## [0.8.0] - 2026-09-08
+
+### Añadido
+
+- **Los apuntes se leen en la Biblioteca**, junto a las grabaciones. Cada
+  unidad abre en dos columnas —grabaciones y apuntes— y al elegir un apunte se
+  lee en la misma columna de detalle donde suena una grabación: hoja grande,
+  miniaturas, el texto reconocido y su nota. Antes los apuntes no aparecían en
+  la Biblioteca y había que ir a buscarlos a su propia pestaña.
+- **Menú por clase y unidad para los apuntes.** Con 68 hojas importadas la
+  tira plana era ilegible. Es el mismo árbol de la Biblioteca: `construirArbol`
+  se hizo genérico sobre lo que tiene clase y unidad, que lo cumplen tanto
+  `Grabacion` como `Apunte`.
+- **Nota libre por apunte**, que entra en la búsqueda igual que la nota de
+  clase de una grabación.
+- **Ampliar la hoja a tamaño real**, con scroll. A tamaño ajustado la letra
+  manuscrita no se lee, que era justo el problema.
+- **Mover una hoja a otro apunte**, con sus archivos. Si el apunte de origen se
+  queda sin hojas se borra solo: es la forma de fusionar dos apuntes que
+  salieron partidos.
+- Ícono propio en cada fila de la Biblioteca: micrófono para lo grabado,
+  apunte para lo escaneado.
+
+### Cambiado
+
+- **La pestaña Apuntes se llama Digitalizar** y queda para el taller: imprimir
+  la plantilla, recibir las fotos, repartirlas en el mesón, recortarlas,
+  reconocer la letra y corregir el texto. Leer un apunte terminado es cosa de
+  la Biblioteca. Mientras las dos pestañas mostraban lo mismo, ninguna decía
+  para qué servía.
+- **El reconocimiento ya no arranca solo** al terminar una tanda de escaneo.
+  Una tanda grande son horas de modelo local ocupando la máquina, y esa
+  decisión se toma una vez, al final, con "Reconocer todo" o con "Reconocer
+  solo esta hoja".
+- **El aviso sobre la calidad del reconocimiento se puede descartar.** Sirve la
+  primera vez, no en cada hoja.
+
+### Arreglado
+
+- **Una tanda de escaneo se guardaba más de una vez.** El efecto que entrega la
+  tanda depende de `onTerminar` y del store, y guardar los apuntes cambia el
+  store: se volvía a disparar antes de que la ráfaga se desmontara, y cada
+  vuelta metía los mismos apuntes de nuevo con otro id. Por eso aparecían
+  apuntes repetidos con las mismas páginas y la cola marcaba cientos de
+  páginas pendientes de más. Ahora la tanda se entrega una sola vez, y al
+  abrir la app se limpian los duplicados que ya hubieran quedado: misma
+  carpeta es el mismo apunte, y gana el registro con más texto reconocido.
+
+## [0.7.0] - 2026-09-07
+
+### Añadido
+
+- **Windows ya no se suspende** mientras hay cola de transcripción.
+
 ## [0.6.0] - 2026-09-07
 
 ### Cambiado

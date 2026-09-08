@@ -44,7 +44,7 @@ export function PlantillaImprimible() {
   const [unidad, setUnidad] = useState<Unidad>("mm");
   const [hojas, setHojas] = useState(20);
   // Para continuar un lote anterior sin repetir números: dos hojas con el
-  // mismo número confunden el orden al escanear (ver ordenarPorQr).
+  // mismo número confunden el orden al escanear (ver ordenarPorMarcador).
   const [desde, setDesde] = useState(1);
   const [duplex, setDuplex] = useState(false);
   const [error, setError] = useState<string | null>(null);

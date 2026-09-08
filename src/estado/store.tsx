@@ -20,6 +20,7 @@ import {
   guardarConfig,
   guardarDatos,
 } from "../lib/almacen";
+import { sinDuplicados } from "../lib/apuntes";
 import { reconciliarConDisco } from "../lib/grabaciones";
 import {
   BASE_DATOS_VACIA,
@@ -120,10 +121,14 @@ export function ProveedorStore({ children }: { children: ReactNode }) {
       let d = cargados;
       try {
         d = await reconciliarConDisco(cargados, c.carpetaRaiz);
-        if (d !== cargados) await guardarDatos(d);
       } catch (e) {
         console.warn("No se pudo reconciliar la biblioteca con el disco", e);
       }
+      // Limpia los apuntes que quedaron anotados dos veces por el bug de la
+      // ráfaga: son el mismo apunte, apuntando a los mismos archivos.
+      const apuntes = sinDuplicados(d.apuntes);
+      if (apuntes.length !== d.apuntes.length) d = { ...d, apuntes };
+      if (d !== cargados) await guardarDatos(d);
       datosRef.current = d;
       configRef.current = c;
       setDatos(d);

@@ -1,6 +1,6 @@
 [package]
 name = "class-recorder"
-version = "0.7.0"
+version = "0.8.0"
 description = "Grabador, organizador y transcriptor de clases universitarias"
 authors = ["Tomas"]
 edition = "2021"
@@ -48,7 +48,9 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # resto de la app.
 #   image      decodificar la foto (con su orientación EXIF) y guardar el JPEG
 #   imageproc  Canny, contornos, homografía y filtros de limpieza
-image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+# webp va incluido porque `EXTENSIONES_FOTO` lo acepta en el Inbox; sin la
+# feature, el archivo entraba a la cola y recién moría al analizarlo.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 imageproc = { version = "0.27", default-features = false }
 # Marcadores ArUco de las esquinas. Se eligió por encima de `apriltag` (ata a
 # una librería de C vía `apriltag-sys`) y de `aprilgrid` (arrastra 111 crates,
@@ -64,11 +66,16 @@ webview2-com = "0.38"
 # Detecta y fuerza la hidratación de placeholders de OneDrive (Archivos bajo
 # demanda), y cifra la clave de la API de transcripción con DPAPI (ligada al
 # usuario de Windows) para no guardarla en texto plano en config.json.
+# Win32_Graphics_Imaging es WIC, que decodifica las fotos HEIC del iPhone: el
+# crate `image` no lee HEIF y los decodificadores en Rust puro que existen son
+# AGPL. Ver src/imagen_windows.rs.
 windows = { version = "0.61", features = [
   "Win32_Storage_FileSystem",
   "Win32_Foundation",
   "Win32_Security_Cryptography",
   "Win32_System_Power",
+  "Win32_Graphics_Imaging",
+  "Win32_System_Com",
 ] }
 
 [profile.release]

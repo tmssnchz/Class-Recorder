@@ -731,9 +731,47 @@ kbd {
 
 .biblioteca-layout {
   display: grid;
-  grid-template-columns: minmax(300px, 400px) minmax(360px, 1fr);
+  /* La lista es más ancha que antes porque cada unidad se abre en dos columnas,
+     grabaciones y apuntes, y con 400px ninguna de las dos se leía. */
+  grid-template-columns: minmax(320px, 540px) minmax(360px, 1fr);
   gap: 20px;
   align-items: start;
+}
+
+/* Lo grabado y lo escaneado, lado a lado dentro de la unidad: son las dos
+   mitades de una misma clase y conviene verlas juntas, no una debajo de otra. */
+.unidad-columnas {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 1250px) {
+  .unidad-columnas {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.unidad-columna {
+  min-width: 0;
+}
+
+.unidad-columna h5 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 6px;
+  color: var(--texto-sutil);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.unidad-columna .item strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .columna-lista {
@@ -1770,6 +1808,13 @@ mark {
   line-height: 1.45;
 }
 
+/* Botón de descartar un aviso: al final de la línea, sin comprimir el texto. */
+.aviso .btn-mini {
+  flex: none;
+  align-self: center;
+  margin-left: auto;
+}
+
 .aviso span {
   flex: 1;
 }
@@ -1977,10 +2022,21 @@ mark {
 
 /* ------------------------------------------------------ ajuste de esquinas */
 
-.ajustar-esquinas {
+/* El marco reserva el hueco que ocupa la foto ya girada; la capa de adentro se
+   gira entera —foto, polígono y tiradores— para que los puntos sigan cayendo
+   sobre la esquina que marcan. */
+.ajustar-esquinas-marco {
   position: relative;
   width: 100%;
   margin: 12px 0;
+  overflow: hidden;
+}
+
+.ajustar-esquinas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
   line-height: 0;
   user-select: none;
   touch-action: none;
@@ -1988,7 +2044,7 @@ mark {
 
 .ajustar-esquinas img {
   width: 100%;
-  height: auto;
+  height: 100%;
   border-radius: var(--radio);
 }
 
@@ -2096,10 +2152,97 @@ mark {
   border: 1px solid var(--borde);
   border-radius: var(--radio);
   background: #fff;
+  cursor: zoom-in;
 }
 
 .hoja .acciones-fila {
   margin-top: 8px;
+}
+
+.mover-hoja {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.mover-hoja select {
+  min-width: 0;
+  flex: 1;
+}
+
+/* La hoja a tamaño real, con scroll. Ajustarla a la ventana la devolvería al
+   tamaño en que justamente no se lee la letra. */
+.hoja-zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.82);
+  cursor: zoom-out;
+  overflow: auto;
+}
+
+.hoja-zoom img {
+  display: block;
+  margin: 0 auto;
+  max-width: none;
+  border-radius: 4px;
+  background: #fff;
+}
+
+/* La nota del apunte en la lista: una línea, recortada. Lo largo se lee en el
+   editor, acá solo tiene que servir para reconocer el apunte. */
+.nota-apunte {
+  overflow: hidden;
+  color: var(--texto-sutil);
+  font-style: italic;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Visor de apunte de la Biblioteca: miniaturas a la izquierda, hoja al lado. */
+.apunte-cuerpo {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  margin-bottom: 12px;
+}
+
+.apunte-cuerpo .tira-paginas {
+  max-height: 52vh;
+}
+
+.apunte-cuerpo .tira-paginas .miniatura img {
+  height: 70px;
+}
+
+/* El texto reconocido, para leer y no para corregir: los saltos de línea de la
+   hoja se respetan igual que en el editor. */
+.texto-apunte {
+  margin: 0;
+  padding: 12px;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  background: var(--superficie-2);
+  border-radius: var(--radio);
+}
+
+.area-nota {
+  min-height: 52px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--texto);
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  resize: vertical;
 }
 
 .texto-reconocido {
@@ -2270,4 +2413,330 @@ mark {
 .cola-reconocimiento .progreso {
   max-width: 180px;
   flex: none;
+}
+
+/* ---------------------------------------- mesón de organización de una tanda */
+
+.organizar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* El mesón scrollea solo; la cabecera y el pie quedan fijos. Con 68 hojas,
+     perder el botón de "seguir" al scrollear obligaría a subir cada vez.
+     Va contra el alto de la ventana y no un 100%: el contenedor `.panel` no
+     tiene altura propia, así que un porcentaje resuelve a `auto` y termina
+     scrolleando la página entera. Los 48 px son el padding de `.contenido`. */
+  height: calc(100vh - 48px);
+  min-height: 0;
+}
+
+.organizar-cabecera,
+.organizar-pie {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.organizar-cabecera h3 {
+  margin: 0 0 2px;
+}
+
+.organizar-cabecera > div:first-child {
+  flex: 1;
+  min-width: 240px;
+}
+
+.organizar-pie {
+  border-top: 1px solid var(--borde);
+  padding-top: 10px;
+}
+
+.organizar-pie span:first-child {
+  flex: 1;
+}
+
+.organizar-cuerpo {
+  display: flex;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ------------------------------------------------------ panel de apuntes */
+
+.organizar-apuntes {
+  width: 280px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.organizar-apuntes-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.organizar-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.organizar-apunte {
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--superficie);
+  padding: 8px 10px;
+}
+
+/* El destino de un arrastre tiene que verse antes de soltar: sin esto, con
+   varios apuntes en la lista es fácil soltar en el equivocado. */
+.organizar-apunte:hover {
+  border-color: var(--primario);
+  background: var(--primario-suave);
+}
+
+.organizar-apunte-cabecera {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.organizar-apunte-cabecera input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--texto);
+  font: inherit;
+  font-weight: 600;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.organizar-apunte-cabecera input:hover,
+.organizar-apunte-cabecera input:focus {
+  border-color: var(--borde);
+  background: var(--superficie-2);
+}
+
+.organizar-apunte p {
+  margin: 2px 0 0;
+}
+
+.organizar-paginas {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.organizar-paginas li {
+  position: relative;
+  width: 38px;
+  height: 50px;
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--borde);
+  cursor: grab;
+}
+
+.organizar-paginas img {
+  -webkit-user-drag: none;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.organizar-paginas span {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  padding: 0 3px;
+  font-size: 10px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+}
+
+/* ------------------------------------------------------------- el mesón */
+
+.organizar-meson {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  padding: 4px;
+  background: var(--superficie-2);
+  border-radius: var(--radio);
+}
+
+.meson-chico {
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+}
+.meson-medio {
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+}
+.meson-grande {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.organizar-hoja {
+  position: relative;
+  margin: 0;
+  background: var(--superficie);
+  border: 2px solid var(--borde);
+  border-radius: var(--radio);
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+}
+
+.organizar-hoja.elegida {
+  border-color: var(--primario);
+  box-shadow: 0 0 0 2px var(--primario-suave);
+}
+
+.organizar-hoja img {
+  /* Sin esto, el navegador arrastra la imagen suelta en vez de la tarjeta y el
+     destino nunca recibe la hoja. */
+  -webkit-user-drag: none;
+  display: block;
+  width: 100%;
+  /* Alto fijo con recorte: una grilla donde cada tarjeta mide distinto es
+     mucho más difícil de barrer con la vista buscando una hoja. */
+  height: 190px;
+  object-fit: cover;
+  object-position: top;
+  background: var(--superficie-2);
+}
+
+/* Girada un cuarto de vuelta, la miniatura ocuparía a lo ancho lo que mide de
+   alto y se saldría de su celda. Con el recuadro cuadrado da igual para qué
+   lado esté: girarlo no cambia el espacio que ocupa. */
+.organizar-hoja img[data-giro="1"],
+.organizar-hoja img[data-giro="3"] {
+  height: auto;
+  aspect-ratio: 1;
+}
+
+.meson-chico .organizar-hoja img {
+  height: 130px;
+}
+.meson-grande .organizar-hoja img {
+  height: 300px;
+}
+
+.organizar-hoja figcaption {
+  padding: 4px 6px;
+  font-size: 12px;
+  text-align: center;
+}
+
+.numero-repetido {
+  color: var(--aviso);
+  font-weight: 600;
+}
+
+.organizar-lupa {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: zoom-in;
+  opacity: 0;
+}
+
+/* Girar y ver grande comparten forma; se separan por el lado en que aparecen. */
+.organizar-girar {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.organizar-hoja:hover .organizar-lupa,
+.organizar-hoja:hover .organizar-girar {
+  opacity: 1;
+}
+
+.organizar-zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.82);
+  cursor: zoom-out;
+  overflow: auto;
+}
+
+.organizar-zoom img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+/* Acostada, la hoja ampliada se mide contra el lado contrario de la ventana. */
+.organizar-zoom img[data-giro="1"],
+.organizar-zoom img[data-giro="3"] {
+  max-width: 92vh;
+  max-height: 92vw;
+}
+
+/* Destino ya decidido en el mesón: se informa, no se vuelve a preguntar. */
+.destino-fijo {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radio);
+  background: var(--primario-suave);
+  color: var(--texto);
+}
+
+/* Miniaturas de las páginas de un apunte: lo bastante grandes para reconocer
+   la hoja sin abrir el zoom, que es lo que uno hace al reordenar. */
+.organizar-paginas li {
+  width: 54px;
+  height: 72px;
+}
+
+/* Mismo motivo que en el mesón: acostada, la miniatura necesita un recuadro
+   cuadrado para no salirse. */
+.organizar-paginas li[data-giro="1"],
+.organizar-paginas li[data-giro="3"] {
+  width: 72px;
+}
+
+/* Dónde va a caer la página que se arrastra. */
+.organizar-paginas li.destino {
+  outline: 2px solid var(--primario);
+  outline-offset: 1px;
 }

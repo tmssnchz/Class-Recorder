@@ -24,7 +24,7 @@ const NAV: {
 }[] = [
   { id: "grabar", etiqueta: "Grabar", icono: "micro" },
   { id: "biblioteca", etiqueta: "Biblioteca", icono: "biblioteca" },
-  { id: "apuntes", etiqueta: "Apuntes", icono: "apunte" },
+  { id: "apuntes", etiqueta: "Digitalizar", icono: "apunte" },
   { id: "clases", etiqueta: "Clases", icono: "clases" },
   { id: "horario", etiqueta: "Mi horario", icono: "horario" },
   { id: "config", etiqueta: "Configuración", icono: "config" },
@@ -46,8 +46,9 @@ export default function App() {
 
 function Contenido() {
   const [vista, setVista] = useState<Vista>("grabar");
-  // Un resultado de búsqueda que cae en un apunte abre la pestaña Apuntes
-  // directamente en ese apunte, en vez de dejar al usuario buscarlo de nuevo.
+  // Los apuntes se leen en la Biblioteca y se arreglan en Digitalizar. Este
+  // salto es el puente entre las dos: abre la pestaña de taller directamente en
+  // el apunte que se estaba mirando, en vez de hacerlo buscar de nuevo.
   const [apunteDestino, setApunteDestino] = useState<string | null>(null);
   const { cargando, error, datos } = useStore();
   const grabador = useGrabador();
@@ -149,7 +150,7 @@ function Contenido() {
         {vista === "clases" && <ClasesPanel />}
         {vista === "biblioteca" && (
           <BibliotecaPanel
-            onAbrirApunte={(id) => {
+            onCorregirApunte={(id) => {
               setApunteDestino(id);
               setVista("apuntes");
             }}

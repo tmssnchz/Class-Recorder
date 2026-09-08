@@ -27,9 +27,16 @@ import { Icono } from "../ui/Icono";
 interface Props {
   /** Se llama con las fotos elegidas, ya listas para el modo ráfaga. */
   onEscanear(fotos: string[], claseId: string | null, unidadId: string | null): void;
+  /**
+   * Igual, pero pasando primero por el mesón de organización.
+   *
+   * Es el camino para una tanda de hojas mezcladas, donde hay que ver todas las
+   * fotos juntas antes de decidir qué apunte arma cada una.
+   */
+  onOrganizar(fotos: string[], claseId: string | null, unidadId: string | null): void;
 }
 
-export function ColaFotos({ onEscanear }: Props) {
+export function ColaFotos({ onEscanear, onOrganizar }: Props) {
   const { datos, config } = useStore();
   const [fotos, setFotos] = useState<ArchivoInbox[]>([]);
   const [inestables, setInestables] = useState<ArchivoInbox[]>([]);
@@ -232,20 +239,37 @@ export function ColaFotos({ onEscanear }: Props) {
             </label>
           </div>
 
-          <button
-            className="btn btn-primario"
-            disabled={elegidas.size === 0}
-            onClick={() =>
-              onEscanear(
-                ordenadas.filter((f) => elegidas.has(f.ruta)).map((f) => f.ruta),
-                claseId,
-                unidadId,
-              )
-            }
-          >
-            <Icono nombre="apunte" />
-            Escanear {elegidas.size} {elegidas.size === 1 ? "hoja" : "hojas"}
-          </button>
+          <div className="acciones-fila">
+            <button
+              className="btn"
+              disabled={elegidas.size === 0}
+              title="Muestra todas las fotos juntas para repartirlas en apuntes y ordenarlas antes de recortar. Es lo que sirve cuando las hojas están mezcladas."
+              onClick={() =>
+                onOrganizar(
+                  ordenadas.filter((f) => elegidas.has(f.ruta)).map((f) => f.ruta),
+                  claseId,
+                  unidadId,
+                )
+              }
+            >
+              <Icono nombre="carpeta" />
+              Organizar primero
+            </button>
+            <button
+              className="btn btn-primario"
+              disabled={elegidas.size === 0}
+              onClick={() =>
+                onEscanear(
+                  ordenadas.filter((f) => elegidas.has(f.ruta)).map((f) => f.ruta),
+                  claseId,
+                  unidadId,
+                )
+              }
+            >
+              <Icono nombre="apunte" />
+              Escanear {elegidas.size} {elegidas.size === 1 ? "hoja" : "hojas"}
+            </button>
+          </div>
         </>
       )}
     </div>

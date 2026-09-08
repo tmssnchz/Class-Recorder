@@ -125,9 +125,9 @@ export const LADOS: { id: LadoAnillado; nombre: string }[] = [
 
 /**
  * Espacio que la plantilla le reserva a cada marcador. De acá salen los
- * centros, así que tiene que seguir coincidiendo con `LADO_QR_MM` en Rust.
+ * centros, así que tiene que seguir coincidiendo con `LADO_RESERVADO_MM` en Rust.
  */
-export const LADO_QR_MM = 14;
+export const LADO_RESERVADO_MM = 14;
 
 /**
  * Lado del cuadrado de tinta de cada marcador de esquina. Son 7 celdas ArUco,
@@ -169,12 +169,12 @@ export function problemaDeNumeracion(desde: number, paginas: number): string | n
  * Centro de cada marcador en milímetros: 0 = arriba izquierda, 1 = arriba derecha,
  * 2 = abajo derecha, 3 = abajo izquierda.
  *
- * Es la misma cuenta que hace `GeometriaPlantilla::centros_qr_mm` en Rust, y
+ * Es la misma cuenta que hace `GeometriaPlantilla::centros_marcador_mm` en Rust, y
  * tiene que seguir siéndolo: si las dos se separan, la homografía sale
  * desplazada y el escaneo queda torcido sin dar ningún error.
  */
-export function centrosQrMm(g: GeometriaPlantilla): [number, number][] {
-  const c = MARGEN_BORDE_MM + LADO_QR_MM / 2;
+export function centrosMarcadorMm(g: GeometriaPlantilla): [number, number][] {
+  const c = MARGEN_BORDE_MM + LADO_RESERVADO_MM / 2;
   const izq = c + (g.ladoAnillado === "izquierda" ? g.margenAnilladoMm : 0);
   const der = g.anchoMm - c - (g.ladoAnillado === "derecha" ? g.margenAnilladoMm : 0);
   const arr = c + (g.ladoAnillado === "arriba" ? g.margenAnilladoMm : 0);
@@ -224,7 +224,7 @@ export function geometriaDePagina(g: GeometriaPlantilla, pagina: number): Geomet
 
 /** Área utilizable para escribir, ya descontado el anillado y los marcadores. */
 export function areaEscribibleMm(g: GeometriaPlantilla) {
-  const borde = MARGEN_BORDE_MM + LADO_QR_MM + 4;
+  const borde = MARGEN_BORDE_MM + LADO_RESERVADO_MM + 4;
   return {
     x: borde + (g.ladoAnillado === "izquierda" ? g.margenAnilladoMm : 0),
     y: borde + (g.ladoAnillado === "arriba" ? g.margenAnilladoMm : 0),
@@ -260,7 +260,7 @@ async function dibujarHoja(
   // Cuatro marcadores ArUco en las esquinas: llevan el número de página y cuál
   // esquina es cada uno. El tamaño de papel no viaja en la hoja; al escanear se
   // usa el configurado en Ajustes.
-  const centros = centrosQrMm(g);
+  const centros = centrosMarcadorMm(g);
   for (let esquina = 0; esquina < 4; esquina++) {
     // 350 px para 7 celdas son 50 px por celda: sobra para que la impresora no
     // redondee el borde de ninguna.
