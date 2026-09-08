@@ -1721,6 +1721,13 @@ kbd {
   opacity: 0.8;
 }
 
+/* "Falta hacerlo" no es "se está haciendo": el que espera va apagado para que
+   no se confunda con el que está corriendo. */
+.testigo-espera {
+  background: var(--superficie-2);
+  color: var(--texto-sutil);
+}
+
 /* -------------------------------------------------------- transcripciones */
 
 .casilla {

@@ -11,6 +11,7 @@ import { ProveedorApuntes, useApuntes } from "./estado/apuntes";
 import { ProveedorGrabador, useGrabador } from "./estado/grabador";
 import { ProveedorStore, useStore } from "./estado/store";
 import { ProveedorTranscripciones, useTranscripciones } from "./estado/transcripciones";
+import { vigentes } from "./lib/apuntes";
 import { useAtajos } from "./hooks/useAtajos";
 import { formatearDuracion } from "./lib/format";
 import "./styles.css";
@@ -66,6 +67,18 @@ function Contenido() {
 
   const enCurso = grabador.fase === "grabando" || grabador.fase === "pausado";
 
+  // Hojas que quedan por reconocer según el disco, no según la cola.
+  //
+  // La cola vive en memoria: si la app se cierra —o se cuelga y hay que
+  // matarla— se pierde, y con ella el testigo, aunque lo ya reconocido siguiera
+  // guardado. Contra `datos.apuntes` el pendiente sobrevive a todo, porque cada
+  // hoja se escribe en cuanto termina y una página sin `motorHtr` es, por
+  // definición, trabajo que falta.
+  const hojasSinReconocer = vigentes(datos.apuntes).reduce(
+    (total, a) => total + a.paginas.filter((pag) => pag.motorHtr === null).length,
+    0,
+  );
+
   return (
     <div className="app">
       <nav className="barra-lateral">
@@ -113,7 +126,7 @@ function Contenido() {
           </button>
         )}
 
-        {apuntesEnCola > 0 && (
+        {apuntesEnCola > 0 ? (
           <button
             className="testigo-tarea"
             onClick={() => setVista("apuntes")}
@@ -122,6 +135,17 @@ function Contenido() {
             {apuntesEnCola} {apuntesEnCola === 1 ? "hoja" : "hojas"}
             <small>reconociendo</small>
           </button>
+        ) : (
+          hojasSinReconocer > 0 && (
+            <button
+              className="testigo-tarea testigo-espera"
+              onClick={() => setVista("apuntes")}
+              title="Hojas escaneadas a las que todavía no se les pasó el reconocimiento"
+            >
+              {hojasSinReconocer} {hojasSinReconocer === 1 ? "hoja" : "hojas"}
+              <small>sin reconocer</small>
+            </button>
+          )
         )}
 
         <div className="barra-pie sutil">
