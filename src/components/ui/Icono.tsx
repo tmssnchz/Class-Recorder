@@ -18,7 +18,8 @@ type Nombre =
   | "horario"
   | "nube"
   | "apunte"
-  | "imprimir";
+  | "imprimir"
+  | "lupa";
 
 const TRAZOS: Record<Nombre, string> = {
   micro:
@@ -46,6 +47,7 @@ const TRAZOS: Record<Nombre, string> = {
     "M4 4h4M4 4v4M20 4h-4M20 4v4M4 20h4M4 20v-4M20 20h-4M20 20v-4M8 9h8M8 13h8M8 17h4",
   imprimir:
     "M6 9V3h12v6M6 18H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-1M6 14h12v7H6Z",
+  lupa: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14ZM21 21l-5.2-5.2",
 };
 
 export function Icono({

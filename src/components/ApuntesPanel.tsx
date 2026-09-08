@@ -16,18 +16,30 @@ import { useStore } from "../estado/store";
 import { borrarArchivosApunte, progresoReconocimiento, vigentes, versionesAnteriores } from "../lib/apuntes";
 import { formatearBytes, formatearFecha } from "../lib/format";
 import { guardarTexto } from "../lib/htr";
+import type { AnalisisFoto } from "../lib/escaneo";
+import type { GrupoOrganizado } from "../lib/organizar";
 import type { Apunte, PaginaApunte } from "../types";
 import { ColaFotos, archivarFoto } from "./apuntes/ColaFotos";
 import { ColaReconocimiento } from "./apuntes/ColaReconocimiento";
 import { EditorApunte } from "./apuntes/EditorApunte";
 import { EscanearRafaga } from "./apuntes/EscanearRafaga";
+import { OrganizarFotos } from "./apuntes/OrganizarFotos";
 import { PlantillaImprimible } from "./apuntes/PlantillaImprimible";
 import { Icono } from "./ui/Icono";
 import { ModalConfirmacion } from "./ui/ModalConfirmacion";
 
 type Modo =
   | { tipo: "lista" }
-  | { tipo: "rafaga"; fotos: string[]; claseId: string | null; unidadId: string | null }
+  | { tipo: "organizar"; fotos: string[]; claseId: string | null; unidadId: string | null }
+  | {
+      tipo: "rafaga";
+      fotos: string[];
+      claseId: string | null;
+      unidadId: string | null;
+      /** Solo cuando la tanda pasó antes por el mesón de organización. */
+      grupos?: GrupoOrganizado[];
+      analisisPrevio?: Map<string, AnalisisFoto>;
+    }
   | { tipo: "editor"; apunteId: string };
 
 interface Props {
@@ -80,6 +92,31 @@ export function ApuntesPanel({ apunteInicial, onApunteAbierto }: Props) {
     setModo({ tipo: "lista" });
   };
 
+  if (modo.tipo === "organizar") {
+    return (
+      <div className="panel">
+        <OrganizarFotos
+          fotos={modo.fotos}
+          claseId={modo.claseId}
+          unidadId={modo.unidadId}
+          onOrganizado={(grupos, analisisPrevio) =>
+            setModo({
+              tipo: "rafaga",
+              // Solo las fotos repartidas, en el orden que quedó: el mesón ya
+              // decidió cuáles entran y en qué apunte.
+              fotos: grupos.flatMap((g) => g.fotos),
+              claseId: modo.claseId,
+              unidadId: modo.unidadId,
+              grupos,
+              analisisPrevio,
+            })
+          }
+          onCancelar={() => setModo({ tipo: "lista" })}
+        />
+      </div>
+    );
+  }
+
   if (modo.tipo === "rafaga") {
     return (
       <div className="panel">
@@ -87,6 +124,8 @@ export function ApuntesPanel({ apunteInicial, onApunteAbierto }: Props) {
           fotos={modo.fotos}
           claseId={modo.claseId}
           unidadId={modo.unidadId}
+          grupos={modo.grupos}
+          analisisPrevio={modo.analisisPrevio}
           onTerminar={(resultados) => void terminarRafaga(resultados)}
           onCancelar={() => setModo({ tipo: "lista" })}
           onFotoUsada={(ruta) => void archivarFoto(ruta, config.carpetaInbox)}
@@ -142,6 +181,9 @@ export function ApuntesPanel({ apunteInicial, onApunteAbierto }: Props) {
       <ColaFotos
         onEscanear={(fotos, claseId, unidadId) =>
           setModo({ tipo: "rafaga", fotos, claseId, unidadId })
+        }
+        onOrganizar={(fotos, claseId, unidadId) =>
+          setModo({ tipo: "organizar", fotos, claseId, unidadId })
         }
       />
 

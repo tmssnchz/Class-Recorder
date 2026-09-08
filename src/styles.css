@@ -2271,3 +2271,268 @@ mark {
   max-width: 180px;
   flex: none;
 }
+
+/* ---------------------------------------- mesón de organización de una tanda */
+
+.organizar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* Ocupa el alto del panel: el mesón scrollea solo, la cabecera y el pie
+     quedan fijos. Con 68 hojas, perder el botón de "seguir" al scrollear
+     obligaría a subir cada vez. */
+  height: 100%;
+  min-height: 0;
+}
+
+.organizar-cabecera,
+.organizar-pie {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.organizar-cabecera h3 {
+  margin: 0 0 2px;
+}
+
+.organizar-cabecera > div:first-child {
+  flex: 1;
+  min-width: 240px;
+}
+
+.organizar-pie {
+  border-top: 1px solid var(--borde);
+  padding-top: 10px;
+}
+
+.organizar-pie span:first-child {
+  flex: 1;
+}
+
+.organizar-cuerpo {
+  display: flex;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ------------------------------------------------------ panel de apuntes */
+
+.organizar-apuntes {
+  width: 280px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.organizar-apuntes-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.organizar-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.organizar-apunte {
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--superficie);
+  padding: 8px 10px;
+}
+
+/* El destino de un arrastre tiene que verse antes de soltar: sin esto, con
+   varios apuntes en la lista es fácil soltar en el equivocado. */
+.organizar-apunte:hover {
+  border-color: var(--primario);
+  background: var(--primario-suave);
+}
+
+.organizar-apunte-cabecera {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.organizar-apunte-cabecera input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--texto);
+  font: inherit;
+  font-weight: 600;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.organizar-apunte-cabecera input:hover,
+.organizar-apunte-cabecera input:focus {
+  border-color: var(--borde);
+  background: var(--superficie-2);
+}
+
+.organizar-apunte p {
+  margin: 2px 0 0;
+}
+
+.organizar-paginas {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.organizar-paginas li {
+  position: relative;
+  width: 38px;
+  height: 50px;
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--borde);
+  cursor: grab;
+}
+
+.organizar-paginas img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.organizar-paginas span {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  padding: 0 3px;
+  font-size: 10px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+}
+
+/* ------------------------------------------------------------- el mesón */
+
+.organizar-meson {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  padding: 4px;
+  background: var(--superficie-2);
+  border-radius: var(--radio);
+}
+
+.meson-chico {
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+}
+.meson-medio {
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+}
+.meson-grande {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.organizar-hoja {
+  position: relative;
+  margin: 0;
+  background: var(--superficie);
+  border: 2px solid var(--borde);
+  border-radius: var(--radio);
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+}
+
+.organizar-hoja.elegida {
+  border-color: var(--primario);
+  box-shadow: 0 0 0 2px var(--primario-suave);
+}
+
+.organizar-hoja img {
+  display: block;
+  width: 100%;
+  /* Alto fijo con recorte: una grilla donde cada tarjeta mide distinto es
+     mucho más difícil de barrer con la vista buscando una hoja. */
+  height: 190px;
+  object-fit: cover;
+  object-position: top;
+  background: var(--superficie-2);
+}
+
+.meson-chico .organizar-hoja img {
+  height: 130px;
+}
+.meson-grande .organizar-hoja img {
+  height: 300px;
+}
+
+.organizar-hoja figcaption {
+  padding: 4px 6px;
+  font-size: 12px;
+  text-align: center;
+}
+
+.numero-repetido {
+  color: var(--aviso);
+  font-weight: 600;
+}
+
+.organizar-lupa {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: zoom-in;
+  opacity: 0;
+}
+
+.organizar-hoja:hover .organizar-lupa {
+  opacity: 1;
+}
+
+.organizar-zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.82);
+  cursor: zoom-out;
+  overflow: auto;
+}
+
+.organizar-zoom img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+/* Destino ya decidido en el mesón: se informa, no se vuelve a preguntar. */
+.destino-fijo {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radio);
+  background: var(--primario-suave);
+  color: var(--texto);
+}

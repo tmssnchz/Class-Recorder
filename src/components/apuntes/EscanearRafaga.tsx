@@ -11,7 +11,7 @@
  * destino (clase/unidad) y se junta con el último bloque que tenga ese mismo
  * destino; "Nuevo apunte" fuerza uno nuevo aunque el destino se repita.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 import { useStore } from "../../estado/store";
@@ -26,6 +26,7 @@ import {
   type Esquina,
 } from "../../lib/escaneo";
 import { formatearBytes } from "../../lib/format";
+import { posicionesEnGrupo, type GrupoOrganizado } from "../../lib/organizar";
 import { nombreArchivo } from "../../lib/paths";
 import { PAPELES } from "../../lib/plantilla";
 import {
@@ -43,6 +44,21 @@ interface Props {
   fotos: string[];
   claseId: string | null;
   unidadId: string | null;
+  /**
+   * Reparto ya decidido en el mesón de organización: un grupo por apunte, con
+   * sus fotos en el orden final de página.
+   *
+   * Cuando viene, la ráfaga deja de preguntar el destino hoja por hoja y deja
+   * de ordenar por el número del marcador: las dos cosas ya se decidieron
+   * mirando el contenido, que es lo único que sirve cuando las hojas se
+   * mezclaron y los números se repiten entre corridas de impresión.
+   */
+  grupos?: GrupoOrganizado[];
+  /**
+   * Análisis ya hechos en el mesón, por ruta. Evita volver a mirar cada foto:
+   * en una tanda de 68 son varios minutos de espera repetidos por nada.
+   */
+  analisisPrevio?: Map<string, AnalisisFoto>;
   /**
    * Se llama con los apuntes ya armados — uno por cada bloque que haya
    * juntado al menos una página. Guardarlos es del que llama.
@@ -81,15 +97,30 @@ export function EscanearRafaga({
   fotos,
   claseId,
   unidadId,
+  grupos,
+  analisisPrevio,
   onTerminar,
   onCancelar,
   onFotoUsada,
 }: Props) {
   const { datos, config } = useStore();
+  // A qué apunte va cada foto y en qué posición, cuando el reparto ya se
+  // decidió en el mesón. La posición viaja por el mismo canal que el número del
+  // marcador —`numerosPagina`— así que el orden elegido a mano se respeta tal
+  // cual aunque una hoja quede pendiente y se confirme al final de la tanda.
+  const grupoDeFoto = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const g of grupos ?? []) for (const f of g.fotos) m.set(f, g.clave);
+    return m;
+  }, [grupos]);
+  const posiciones = useMemo(() => (grupos ? posicionesEnGrupo(grupos) : null), [grupos]);
+
   // `orden` es la lista que se está recorriendo. Arranca siendo todas las
   // fotos; al terminar, si quedaron pendientes, pasa a ser esa lista y se
   // recorre de nuevo pero ya sin confirmación automática.
-  const [orden, setOrden] = useState<string[]>(fotos);
+  const [orden, setOrden] = useState<string[]>(() =>
+    grupos ? grupos.flatMap((g) => g.fotos) : fotos,
+  );
   const [pendientes, setPendientes] = useState<Pendiente[]>([]);
   // Copia de los motivos de la pasada anterior, para mostrarlos de entrada en
   // el repaso: sin esto, hay que volver a mirar hoja por hoja para saber por
@@ -119,9 +150,29 @@ export function EscanearRafaga({
   // Apuntes que va juntando esta tanda. Empieza con uno solo, con el destino
   // que traía la cola de fotos — el caso simple (cuaderno nuevo) nunca crea
   // un segundo bloque y termina igual que antes.
-  const [bloques, setBloques] = useState<BloqueRafaga[]>(() => [
-    { clave: crypto.randomUUID(), claseId, unidadId, titulo: "", carpeta: null, paginas: [], numerosPagina: new Map() },
-  ]);
+  const [bloques, setBloques] = useState<BloqueRafaga[]>(() =>
+    grupos
+      ? grupos.map((g) => ({
+          clave: g.clave,
+          claseId: g.claseId,
+          unidadId: g.unidadId,
+          titulo: g.titulo,
+          carpeta: null,
+          paginas: [],
+          numerosPagina: new Map(),
+        }))
+      : [
+          {
+            clave: crypto.randomUUID(),
+            claseId,
+            unidadId,
+            titulo: "",
+            carpeta: null,
+            paginas: [],
+            numerosPagina: new Map(),
+          },
+        ],
+  );
   // Destino elegido para la próxima foto. Por defecto, el de la última
   // elegida — así una racha de hojas del mismo ramo no obliga a re-elegir en
   // cada una.
@@ -151,6 +202,17 @@ export function EscanearRafaga({
     setAnalizando(true);
     setError(null);
 
+    // El mesón ya miró estas fotos: repetir el análisis de una tanda entera son
+    // varios minutos de espera para llegar al mismo resultado.
+    const yaVisto = analisisPrevio?.get(fotoActual);
+    if (yaVisto) {
+      setAnalisis(yaVisto);
+      setEsquinas(yaVisto.esquinas);
+      if (yaVisto.geometria) setGeometria(yaVisto.geometria);
+      setAnalizando(false);
+      return;
+    }
+
     void (async () => {
       try {
         const a = await analizarFoto(fotoActual, config.apuntes.plantilla);
@@ -172,7 +234,7 @@ export function EscanearRafaga({
     return () => {
       vigente = false;
     };
-  }, [fotoActual, config.apuntes.plantilla]);
+  }, [fotoActual, config.apuntes.plantilla, analisisPrevio]);
 
   // Una hoja "resuelta sola" es la que trae los cuatro marcadores leídos y
   // ningún aviso. Con un marcador estimado o una foto movida se para: son
@@ -198,11 +260,15 @@ export function EscanearRafaga({
     setError(null);
 
     try {
-      // Se junta con el último bloque que tenga el mismo destino; si no hay
-      // ninguno (o "Nuevo apunte" lo forzó), se crea uno.
-      const existente = [...bloques]
-        .reverse()
-        .find((b) => b.claseId === destino.claseId && b.unidadId === destino.unidadId);
+      // Con el reparto ya hecho, la hoja va al apunte que le tocó en el mesón.
+      // Si no, se junta con el último bloque que tenga el mismo destino; y si no
+      // hay ninguno (o "Nuevo apunte" lo forzó), se crea uno.
+      const claveAsignada = grupoDeFoto.get(fotoActual);
+      const existente = claveAsignada
+        ? bloques.find((b) => b.clave === claveAsignada)
+        : [...bloques]
+            .reverse()
+            .find((b) => b.claseId === destino.claseId && b.unidadId === destino.unidadId);
       const c = datos.clases.find((x) => x.id === destino.claseId) ?? null;
       const u = c?.unidades.find((x) => x.id === destino.unidadId) ?? null;
       const bloque: BloqueRafaga =
@@ -239,7 +305,12 @@ export function EscanearRafaga({
           ...bloque,
           carpeta: destinoCarpeta,
           paginas: [...bloque.paginas, pagina],
-          numerosPagina: new Map(bloque.numerosPagina).set(pagina.id, analisis.pagina),
+          // Con reparto hecho manda la posición elegida en el mesón; si no, el
+          // número del marcador. Los dos ordenan igual de bien en `ordenarPorMarcador`.
+          numerosPagina: new Map(bloque.numerosPagina).set(
+            pagina.id,
+            posiciones?.get(fotoActual) ?? analisis.pagina,
+          ),
         };
         return bs.some((b) => b.clave === clave)
           ? bs.map((b) => (b.clave === clave ? actualizado : b))
@@ -253,7 +324,19 @@ export function EscanearRafaga({
     } finally {
       setGuardando(false);
     }
-  }, [analisis, bloques, config, datos.clases, destino, esquinas, fotoActual, geometria, onFotoUsada]);
+  }, [
+    analisis,
+    bloques,
+    config,
+    datos.clases,
+    destino,
+    esquinas,
+    fotoActual,
+    geometria,
+    grupoDeFoto,
+    onFotoUsada,
+    posiciones,
+  ]);
 
   const saltar = () => setIndice((i) => i + 1);
 
@@ -311,7 +394,13 @@ export function EscanearRafaga({
       listos.map((b) => {
         const c = datos.clases.find((x) => x.id === b.claseId) ?? null;
         const u = c?.unidades.find((x) => x.id === b.unidadId) ?? null;
-        const paginas = ignorarNumeros ? renumerar(b.paginas) : ordenarPorMarcador(b.paginas, b.numerosPagina);
+        // Con reparto hecho, `numerosPagina` lleva la posición elegida en el
+        // mesón y siempre manda: "ignorar números" es una salida para cuando el
+        // marcador miente, y acá el orden no salió del marcador.
+        const paginas =
+          !grupos && ignorarNumeros
+            ? renumerar(b.paginas)
+            : ordenarPorMarcador(b.paginas, b.numerosPagina);
         const apunte: Apunte = {
           id: crypto.randomUUID(),
           titulo: b.titulo,
@@ -392,17 +481,19 @@ export function EscanearRafaga({
           />
           <span>Modo integración</span>
         </label>
-        <label
-          className="selector-fila"
-          title="Usa el orden en que se sacaron las fotos en vez del número leído del marcador. Sirve cuando dos tandas de plantilla impresas por separado repiten números."
-        >
-          <input
-            type="checkbox"
-            checked={ignorarNumeros}
-            onChange={(e) => setIgnorarNumeros(e.target.checked)}
-          />
-          <span>Ignorar números de página</span>
-        </label>
+        {!grupos && (
+          <label
+            className="selector-fila"
+            title="Usa el orden en que se sacaron las fotos en vez del número leído del marcador. Sirve cuando dos tandas de plantilla impresas por separado repiten números."
+          >
+            <input
+              type="checkbox"
+              checked={ignorarNumeros}
+              onChange={(e) => setIgnorarNumeros(e.target.checked)}
+            />
+            <span>Ignorar números de página</span>
+          </label>
+        )}
         <button className="btn" onClick={onCancelar} disabled={guardando}>
           Cancelar
         </button>
@@ -481,6 +572,13 @@ export function EscanearRafaga({
             onCambiar={setEsquinas}
           />
 
+          {grupos ? (
+            <p className="destino-fijo">
+              Va al apunte <strong>{bloques.find((b) => b.clave === grupoDeFoto.get(fotoActual))?.titulo}</strong>
+              {posiciones?.get(fotoActual) && `, página ${posiciones.get(fotoActual)}`}. Lo elegiste
+              en el mesón; acá solo queda revisar el recorte.
+            </p>
+          ) : (
           <div className="destino-foto">
             <label className="selector-fila">
               <span>Clase</span>
@@ -515,6 +613,7 @@ export function EscanearRafaga({
               Nuevo apunte
             </button>
           </div>
+          )}
 
           {formNuevo && (
             <div className="tarjeta destino-nuevo">
