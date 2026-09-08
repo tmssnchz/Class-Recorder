@@ -53,22 +53,22 @@ pub struct GeometriaPlantilla {
 /// Espacio que la plantilla le reserva a cada marcador de esquina, zona de
 /// silencio incluida. De acá salen los centros.
 ///
-/// Conserva el nombre y los 14 mm de cuando el marcador era un QR: las hojas ya
+/// Son los 14 mm que se reservaron cuando el marcador todavía era un QR: las hojas ya
 /// impresas tienen los centros en estos milímetros y no se pueden mover sin
 /// reimprimirlas todas.
-pub const LADO_QR_MM: f32 = 14.0;
+pub const LADO_RESERVADO_MM: f32 = 14.0;
 /// Separación entre el borde del papel y el borde del marcador.
 pub const MARGEN_BORDE_MM: f32 = 8.0;
 
 /// Lado del cuadrado de tinta que se imprime de verdad.
 ///
-/// Es menor que `LADO_QR_MM` porque la zona de silencio no se imprime: el papel
+/// Es menor que `LADO_RESERVADO_MM` porque la zona de silencio no se imprime: el papel
 /// de alrededor ya es blanco y cumple exactamente esa función. Separarlo del
 /// espacio reservado permite achicar la tinta sin mover ni un milímetro la
 /// geometría, así que las hojas ya impresas se siguen leyendo igual.
 // Lo consume el generador de la plantilla desde TypeScript, no el backend.
 #[allow(dead_code)]
-pub const LADO_QR_IMPRESO_MM: f32 = 10.0;
+pub const LADO_MARCADOR_MM: f32 = 10.0;
 
 impl GeometriaPlantilla {
     /// Centro de cada marcador en milímetros, en el orden fijo que usa toda la
@@ -78,8 +78,8 @@ impl GeometriaPlantilla {
     ///
     /// El margen de anillado se suma solo del lado que corresponde, así que
     /// los cuatro centros no forman un rectángulo centrado. Es a propósito.
-    pub fn centros_qr_mm(&self) -> [(f32, f32); 4] {
-        let c = MARGEN_BORDE_MM + LADO_QR_MM / 2.0;
+    pub fn centros_marcador_mm(&self) -> [(f32, f32); 4] {
+        let c = MARGEN_BORDE_MM + LADO_RESERVADO_MM / 2.0;
         let anillado = self.margen_anillado_mm;
 
         let izq = c + if self.lado_anillado == LadoAnillado::Izquierda { anillado } else { 0.0 };
@@ -297,7 +297,7 @@ fn esquinas_desde_centros(
     centros: &[(f32, f32); 4],
     geometria: GeometriaPlantilla,
 ) -> Option<[Esquina; 4]> {
-    let mm_a_px = Projection::from_control_points(geometria.centros_qr_mm(), *centros)?;
+    let mm_a_px = Projection::from_control_points(geometria.centros_marcador_mm(), *centros)?;
     let (w, h) = (geometria.ancho_mm, geometria.alto_mm);
     let mut esquinas = [Esquina { x: 0.0, y: 0.0 }; 4];
     for (i, v) in [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)].iter().enumerate() {
@@ -863,7 +863,7 @@ pub fn generar_marcador_png(pagina: u32, esquina: usize, px: u32) -> Result<Stri
 }
 
 /// Base64 estándar. Son veinte líneas contra una dependencia más: ni el PNG de
-/// un QR ni la imagen que se manda a la API justifican sumar un crate al árbol
+/// un marcador ni la imagen que se manda a la API justifican sumar un crate al árbol
 /// de compilación.
 pub(crate) fn base64(datos: &[u8]) -> String {
     const ALFABETO: &[u8; 64] =
@@ -907,11 +907,11 @@ mod tests {
 
     #[test]
     fn el_anillado_corre_solo_las_esquinas_de_su_lado() {
-        let c = B5.centros_qr_mm();
+        let c = B5.centros_marcador_mm();
         // Izquierda desplazada por el anillado, derecha no.
-        assert_eq!(c[0].0, MARGEN_BORDE_MM + LADO_QR_MM / 2.0 + 18.0);
+        assert_eq!(c[0].0, MARGEN_BORDE_MM + LADO_RESERVADO_MM / 2.0 + 18.0);
         assert_eq!(c[3].0, c[0].0);
-        assert_eq!(c[1].0, 176.0 - (MARGEN_BORDE_MM + LADO_QR_MM / 2.0));
+        assert_eq!(c[1].0, 176.0 - (MARGEN_BORDE_MM + LADO_RESERVADO_MM / 2.0));
         for (x, y) in c {
             assert!(x > 0.0 && x < 176.0 && y > 0.0 && y < 250.0);
         }
@@ -925,7 +925,7 @@ mod tests {
     /// papel.
     #[test]
     fn la_homografia_recupera_las_esquinas_de_una_foto_en_angulo() {
-        let centros_mm = B5.centros_qr_mm();
+        let centros_mm = B5.centros_marcador_mm();
         let falsa_camara = Projection::from_control_points(
             [(0.0, 0.0), (176.0, 0.0), (176.0, 250.0), (0.0, 250.0)],
             [(120.0, 90.0), (1480.0, 210.0), (1390.0, 1850.0), (240.0, 1700.0)],
@@ -1125,7 +1125,7 @@ mod tests {
         )
         .expect("los cuatro puntos forman un cuadrilátero");
 
-        let centros_mm = reverso.centros_qr_mm();
+        let centros_mm = reverso.centros_marcador_mm();
         let centros: [(f32, f32); 4] = std::array::from_fn(|i| camara * centros_mm[i]);
 
         // Con la geometría de la cara, las esquinas del papel salen exactas.
@@ -1150,12 +1150,12 @@ mod tests {
     }
 
     /// Prototipo de la tubería completa, sin necesitar una foto real: se arma
-    /// una hoja B5 con sus cuatro QR en los milímetros que les tocan, se la
+    /// una hoja B5 con sus cuatro marcadores en los milímetros que les tocan, se la
     /// deforma como si estuviera fotografiada en ángulo sobre un escritorio
     /// oscuro, se guarda como JPEG y se corre el mismo camino que corre la app.
     #[test]
     fn de_la_foto_en_angulo_al_escaneo_derecho() {
-        // La hoja se "imprime" a 300 dpi para que cada módulo del QR caiga en un
+        // La hoja se "imprime" a 300 dpi para que cada celda del marcador caiga en un
         // número entero de píxeles: reescalarlo después deforma la cuadrícula y
         // el lector deja de encontrarla.
         let dpi = 300.0f32;
@@ -1170,7 +1170,7 @@ mod tests {
         let mut hoja: GrayImage = ImageBuffer::from_pixel(pw, ph, Luma([250u8]));
         // Cuatro marcadores ArUco en las esquinas, como la plantilla real.
         let lado_marcador = (marcadores::LADO_MM * px_mm) as u32;
-        for (i, (cx, cy)) in B5.centros_qr_mm().iter().enumerate() {
+        for (i, (cx, cy)) in B5.centros_marcador_mm().iter().enumerate() {
             let m = marcadores::imagen_marcador(marcadores::id_de(5, i), lado_marcador)
                 .expect("se genera el marcador");
             let x0 = (cx * px_mm) as i64 - m.width() as i64 / 2;
@@ -1241,7 +1241,7 @@ mod tests {
         }
 
         // 4. …y rectificar. Primero sin limpiar, para poder comprobar la
-        // geometría contra los propios QR de la hoja.
+        // geometría contra los propios marcadores de la hoja.
         let crudo = dir.join("escaneo-crudo.jpg");
         let info = rectificar(PedidoRectificar {
             ruta: entrada.to_string_lossy().to_string(),
@@ -1264,7 +1264,7 @@ mod tests {
         let leidos = marcadores::leer_marcadores(&escaneada);
         assert_eq!(leidos.len(), 4, "los cuatro marcadores deberían releerse");
         for m in &leidos {
-            let (cx, cy) = B5.centros_qr_mm()[m.esquina];
+            let (cx, cy) = B5.centros_marcador_mm()[m.esquina];
             let error =
                 ((m.centro.0 - cx * px_mm).powi(2) + (m.centro.1 - cy * px_mm).powi(2)).sqrt();
             assert!(error < 12.0, "marcador {} desviado {error:.1} px", m.esquina);

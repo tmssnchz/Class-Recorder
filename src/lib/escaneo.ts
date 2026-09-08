@@ -225,14 +225,14 @@ export function renumerar(paginas: PaginaApunte[]): PaginaApunte[] {
  * no traen ninguno quedan al final, en el orden en que se escanearon, para que
  * el usuario las acomode a mano.
  */
-export function ordenarPorQr(
+export function ordenarPorMarcador(
   paginas: PaginaApunte[],
-  numerosQr: Map<string, number | null>,
+  numerosPagina: Map<string, number | null>,
 ): PaginaApunte[] {
-  const conQr = paginas.filter((p) => numerosQr.get(p.id) != null);
-  const sinQr = paginas.filter((p) => numerosQr.get(p.id) == null);
-  conQr.sort((a, b) => (numerosQr.get(a.id) ?? 0) - (numerosQr.get(b.id) ?? 0));
-  return renumerar([...conQr, ...sinQr]);
+  const conNumero = paginas.filter((p) => numerosPagina.get(p.id) != null);
+  const sinNumero = paginas.filter((p) => numerosPagina.get(p.id) == null);
+  conNumero.sort((a, b) => (numerosPagina.get(a.id) ?? 0) - (numerosPagina.get(b.id) ?? 0));
+  return renumerar([...conNumero, ...sinNumero]);
 }
 
 /**

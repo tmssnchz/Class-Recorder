@@ -20,7 +20,7 @@ import {
   carpetaApunte,
   carpetaLibre,
   digitalizarFoto,
-  ordenarPorQr,
+  ordenarPorMarcador,
   renumerar,
   type AnalisisFoto,
   type Esquina,
@@ -68,7 +68,7 @@ interface BloqueRafaga {
   /** null hasta que se confirma su primera página. */
   carpeta: string | null;
   paginas: PaginaApunte[];
-  numerosQr: Map<string, number | null>;
+  numerosPagina: Map<string, number | null>;
 }
 
 interface Pendiente {
@@ -120,7 +120,7 @@ export function EscanearRafaga({
   // que traía la cola de fotos — el caso simple (cuaderno nuevo) nunca crea
   // un segundo bloque y termina igual que antes.
   const [bloques, setBloques] = useState<BloqueRafaga[]>(() => [
-    { clave: crypto.randomUUID(), claseId, unidadId, titulo: "", carpeta: null, paginas: [], numerosQr: new Map() },
+    { clave: crypto.randomUUID(), claseId, unidadId, titulo: "", carpeta: null, paginas: [], numerosPagina: new Map() },
   ]);
   // Destino elegido para la próxima foto. Por defecto, el de la última
   // elegida — así una racha de hojas del mismo ramo no obliga a re-elegir en
@@ -213,7 +213,7 @@ export function EscanearRafaga({
           titulo: tituloDe(c?.nombre ?? SIN_CLASE, u?.nombre ?? null),
           carpeta: null,
           paginas: [],
-          numerosQr: new Map(),
+          numerosPagina: new Map(),
         };
 
       // La carpeta del bloque se crea recién con su primera hoja confirmada:
@@ -239,7 +239,7 @@ export function EscanearRafaga({
           ...bloque,
           carpeta: destinoCarpeta,
           paginas: [...bloque.paginas, pagina],
-          numerosQr: new Map(bloque.numerosQr).set(pagina.id, analisis.pagina),
+          numerosPagina: new Map(bloque.numerosPagina).set(pagina.id, analisis.pagina),
         };
         return bs.some((b) => b.clave === clave)
           ? bs.map((b) => (b.clave === clave ? actualizado : b))
@@ -311,7 +311,7 @@ export function EscanearRafaga({
       listos.map((b) => {
         const c = datos.clases.find((x) => x.id === b.claseId) ?? null;
         const u = c?.unidades.find((x) => x.id === b.unidadId) ?? null;
-        const paginas = ignorarNumeros ? renumerar(b.paginas) : ordenarPorQr(b.paginas, b.numerosQr);
+        const paginas = ignorarNumeros ? renumerar(b.paginas) : ordenarPorMarcador(b.paginas, b.numerosPagina);
         const apunte: Apunte = {
           id: crypto.randomUUID(),
           titulo: b.titulo,
@@ -352,7 +352,7 @@ export function EscanearRafaga({
       titulo: formNuevo.titulo.trim() || tituloDe(SIN_CLASE, null),
       carpeta: null,
       paginas: [],
-      numerosQr: new Map(),
+      numerosPagina: new Map(),
     };
     // Va al final: el emparejamiento por destino toma siempre el último
     // bloque que coincida, así que las hojas siguientes de este mismo destino
