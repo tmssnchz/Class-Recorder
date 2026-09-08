@@ -125,20 +125,27 @@ pub fn leer_marcadores(gris: &GrayImage) -> Vec<MarcadorLeido> {
         height: gris.height(),
     });
 
-    encontrados
-        .into_iter()
-        .filter(|m| m.id >= 0)
-        .map(|m| {
-            let (pagina, esquina) = desde_id(m.id as u32);
-            let cx = m.corners.iter().map(|p| p.x).sum::<f32>() / 4.0;
-            let cy = m.corners.iter().map(|p| p.y).sum::<f32>() / 4.0;
-            MarcadorLeido {
-                pagina,
-                esquina,
-                centro: (cx, cy),
-            }
-        })
-        .collect()
+    let mut leidos: Vec<MarcadorLeido> = Vec::new();
+    for m in encontrados.into_iter().filter(|m| m.id >= 0) {
+        let (pagina, esquina) = desde_id(m.id as u32);
+        // Una hoja tiene exactamente un marcador por esquina, así que dos
+        // lecturas del mismo id son siempre el mismo cuadrado contado dos veces:
+        // el detector a veces devuelve el contorno duplicado, con los centros a
+        // menos de un píxel. Sin esto, la hoja aparenta tener cinco esquinas y
+        // el conteo de marcadores —que es lo que decide si el recorte es exacto
+        // o hay que revisarlo— queda mal.
+        if leidos.iter().any(|x| x.pagina == pagina && x.esquina == esquina) {
+            continue;
+        }
+        let cx = m.corners.iter().map(|p| p.x).sum::<f32>() / 4.0;
+        let cy = m.corners.iter().map(|p| p.y).sum::<f32>() / 4.0;
+        leidos.push(MarcadorLeido {
+            pagina,
+            esquina,
+            centro: (cx, cy),
+        });
+    }
+    leidos
 }
 
 #[cfg(test)]

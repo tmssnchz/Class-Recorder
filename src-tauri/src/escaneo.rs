@@ -351,6 +351,130 @@ fn esquinas_desde_centros(
     Some(esquinas)
 }
 
+/// Lee los marcadores insistiendo con varias preparaciones de la foto.
+///
+/// El detector corría una sola pasada sobre la imagen tal cual, y sobre fotos
+/// reales rendía mucho menos de lo que parecía. Medido sobre una tanda de 68
+/// fotos de hojas apiladas, contando esquinas de una misma página:
+///
+///   tal cual        27 hojas con 3+ marcadores, 19 con 2
+///   a la mitad      47 con 3+,  6 con 2
+///   sin sombra      46 con 3+,  6 con 2
+///   las cuatro      52 con 3+,  1 con 2
+///
+/// Que reducir a la mitad casi duplique el resultado es contraintuitivo y es el
+/// motivo de que esto exista: una foto de 12 MP le da al umbral adaptativo del
+/// detector una ventana enorme comparada con el marcador, y el ruido del grano
+/// del papel pesa más que el borde del cuadrado. Bajando la escala, el marcador
+/// ocupa una fracción mayor de esa ventana.
+///
+/// Las pasadas van de más barata a más cara y se corta apenas una página tiene
+/// sus cuatro esquinas, que es lo mejor a lo que se puede llegar. Las que no
+/// llegan pagan las cuatro, pero son justo las fotos que valen el esfuerzo.
+///
+/// ponytail: cuatro pasadas fijas, sin adaptar nada a la foto. Si el costo llega
+/// a molestar, lo primero es cortar también con tres esquinas.
+fn leer_marcadores_insistiendo(gris: &GrayImage) -> Vec<MarcadorLeido> {
+    /// Escala a la que se mira, y si antes se le borra la sombra.
+    const PASADAS: [(f32, bool); 4] = [
+        (0.5, false),
+        (1.0, false),
+        (0.75, false),
+        (1.0, true),
+    ];
+
+    let mut encontrados: Vec<MarcadorLeido> = Vec::new();
+    for (escala, sin_sombra) in PASADAS {
+        let base = if sin_sombra { limpiar_escaneo(gris.clone()) } else { gris.clone() };
+        let preparada = if escala == 1.0 {
+            base
+        } else {
+            image::imageops::resize(
+                &base,
+                (base.width() as f32 * escala).round().max(1.0) as u32,
+                (base.height() as f32 * escala).round().max(1.0) as u32,
+                image::imageops::FilterType::Triangle,
+            )
+        };
+
+        // Una página ya respaldada por dos esquinas es una hoja de verdad. A
+        // partir de ahí, las pasadas siguientes solo pueden **completarla**: si
+        // pudieran traer páginas nuevas, cada pasada extra sumaría también sus
+        // lecturas falsas, que es lo que pasa al bajar la escala y confundir un
+        // dibujo a lápiz con un marcador. Mientras no haya ninguna hoja firme,
+        // se acepta todo, que es como arranca la primera pasada.
+        let afianzada = pagina_con_al_menos_dos(&encontrados);
+
+        for m in marcadores::leer_marcadores(&preparada) {
+            if afianzada.is_some_and(|p| p != m.pagina) {
+                continue;
+            }
+            // El centro vuelve a píxeles de la foto original: quien llama no
+            // tiene por qué saber a qué escala se lo encontró.
+            let centro = (m.centro.0 / escala, m.centro.1 / escala);
+            if !encontrados
+                .iter()
+                .any(|x| x.pagina == m.pagina && x.esquina == m.esquina)
+            {
+                encontrados.push(MarcadorLeido { centro, ..m });
+            }
+        }
+
+        if pagina_completa(&encontrados) {
+            break;
+        }
+    }
+    descartar_sueltos(encontrados)
+}
+
+/// Tira las páginas que se apoyan en un solo marcador cuando hay otra con dos o
+/// más.
+///
+/// Un marcador suelto de una página distinta al resto casi siempre es una
+/// lectura falsa: el detector confundió un dibujo a lápiz o una mancha con un
+/// código, y baja la escala eso se vuelve más probable. Una hoja de verdad que
+/// asoma por debajo de la pila aporta normalmente dos o más esquinas, así que el
+/// aviso de "se ven dos hojas" sigue saliendo cuando corresponde.
+///
+/// Importa más de lo que parece: un marcador falso inventa un número de página,
+/// y ese número es el que después ordena la hoja dentro del apunte.
+fn descartar_sueltos(leidos: Vec<MarcadorLeido>) -> Vec<MarcadorLeido> {
+    let cuantos = |p: u32| leidos.iter().filter(|m| m.pagina == p).count();
+    if !leidos.iter().any(|m| cuantos(m.pagina) >= 2) {
+        // Ninguna página tiene apoyo: no hay con qué comparar, y un marcador
+        // solo todavía vale por su número de página.
+        return leidos;
+    }
+    leidos.iter().filter(|m| cuantos(m.pagina) >= 2).copied().collect()
+}
+
+/// La página con dos o más esquinas leídas, si hay una sola así.
+///
+/// Con dos esquinas de la misma página ya no es casualidad: son 1023 códigos y
+/// que dos caigan en la misma hoja por azar no pasa. Devuelve None si hay
+/// empate entre varias —la foto agarró dos hojas de verdad— para no elegir mal.
+fn pagina_con_al_menos_dos(leidos: &[MarcadorLeido]) -> Option<u32> {
+    let mut paginas: Vec<u32> = leidos.iter().map(|m| m.pagina).collect();
+    paginas.sort_unstable();
+    paginas.dedup();
+    let mut firmes = paginas
+        .into_iter()
+        .filter(|p| leidos.iter().filter(|m| m.pagina == *p).count() >= 2);
+    let primera = firmes.next()?;
+    firmes.next().is_none().then_some(primera)
+}
+
+/// true si alguna página ya tiene sus cuatro esquinas: no hay nada mejor que
+/// buscar y las pasadas que faltan serían tiempo tirado.
+fn pagina_completa(leidos: &[MarcadorLeido]) -> bool {
+    let mut paginas: Vec<u32> = leidos.iter().map(|m| m.pagina).collect();
+    paginas.sort_unstable();
+    paginas.dedup();
+    paginas
+        .iter()
+        .any(|p| leidos.iter().filter(|m| m.pagina == *p).count() == 4)
+}
+
 /// Esquinas del papel a partir de **dos** marcadores.
 ///
 /// Dos puntos con su posición conocida en milímetros determinan una semejanza:
@@ -589,7 +713,7 @@ fn analizar(ruta: &str, geometria_defecto: GeometriaPlantilla) -> Result<Analisi
     // Ajustes. La hoja no lo autodescribe, y ese es el trade-off aceptado — si
     // alguna vez se cambia de papel, las hojas viejas se recortarían con la
     // geometría nueva.
-    let marcadores = marcadores::leer_marcadores(&gris);
+    let marcadores = leer_marcadores_insistiendo(&gris);
 
     // Cuántas hojas distintas se ven: fotografiar el cuaderno abierto entra
     // dos páginas a la vez y solo se puede procesar una.
@@ -1612,6 +1736,127 @@ mod tests {
             cuenta("ninguna"),
             con_pagina,
         );
+    }
+
+    /// Compara estrategias de detección de marcadores sobre una carpeta real.
+    ///
+    ///   CARPETA=... cargo test bench_deteccion -- --ignored --nocapture
+    ///
+    /// El detector corre una sola pasada sobre la foto tal cual. Antes de
+    /// complicarlo conviene saber si alguna variante encuentra más marcadores de
+    /// verdad, y cuánto cuesta: sobre hojas reales, la intuición falla.
+    #[test]
+    #[ignore]
+    fn bench_deteccion_en_una_carpeta() {
+        use std::path::PathBuf;
+        let carpeta = std::env::var("CARPETA").expect("define CARPETA");
+        let mut rutas: Vec<PathBuf> = std::fs::read_dir(&carpeta)
+            .expect("se lee la carpeta")
+            .flatten()
+            .map(|e| e.path())
+            .filter(|r| r.is_file() && r.extension().is_some_and(|e| e != "m4a"))
+            .collect();
+        rutas.sort();
+
+        // Cada variante devuelve la imagen sobre la que probar el detector.
+        let variantes: [(&str, fn(&GrayImage) -> GrayImage); 4] = [
+            ("mitad", |g| {
+                image::imageops::resize(g, g.width() / 2, g.height() / 2, image::imageops::FilterType::Triangle)
+            }),
+            ("tal cual", |g| g.clone()),
+            ("tres cuartos", |g| {
+                image::imageops::resize(g, g.width() * 3 / 4, g.height() * 3 / 4, image::imageops::FilterType::Triangle)
+            }),
+            // Divide por el fondo: borra la sombra despareja que deja fotografiar
+            // una hoja encima de una pila.
+            ("sin sombra", |g| limpiar_escaneo(g.clone())),
+        ];
+
+        let siguiente = std::sync::atomic::AtomicUsize::new(0);
+        let filas = std::sync::Mutex::new(Vec::<(String, Vec<usize>, [usize; 4])>::new());
+
+        std::thread::scope(|s| {
+            for _ in 0..3 {
+                s.spawn(|| loop {
+                    let i = siguiente.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(ruta) = rutas.get(i) else { return };
+                    let Ok(img) = abrir_con_orientacion(ruta) else { return };
+                    let gris = img.to_luma8();
+
+                    // Lo que cuenta es cuántas esquinas distintas de **una misma
+                    // página** ve cada variante: es lo que mira `agrupar_marcadores`.
+                    // Contar marcadores sueltos infla el número cuando en la foto
+                    // asoma la hoja de abajo de la pila.
+                    let mejor_pagina = |vistos: &Vec<(u32, usize)>| -> usize {
+                        let mut paginas: Vec<u32> = vistos.iter().map(|(p, _)| *p).collect();
+                        paginas.sort_unstable();
+                        paginas.dedup();
+                        paginas
+                            .iter()
+                            .map(|p| {
+                                let mut esquinas: Vec<usize> = vistos
+                                    .iter()
+                                    .filter(|(q, _)| q == p)
+                                    .map(|(_, e)| *e)
+                                    .collect();
+                                esquinas.sort_unstable();
+                                esquinas.dedup();
+                                esquinas.len()
+                            })
+                            .max()
+                            .unwrap_or(0)
+                    };
+
+                    let mut por_variante = [0usize; 4];
+                    let mut acumuladas: Vec<Vec<(u32, usize)>> = Vec::new();
+                    let mut union: Vec<(u32, usize)> = Vec::new();
+                    for (v, (_, preparar)) in variantes.iter().enumerate() {
+                        let vistos: Vec<(u32, usize)> = marcadores::leer_marcadores(&preparar(&gris))
+                            .into_iter()
+                            .map(|m| (m.pagina, m.esquina))
+                            .collect();
+                        por_variante[v] = mejor_pagina(&vistos);
+                        for m in vistos {
+                            if !union.contains(&m) {
+                                union.push(m);
+                            }
+                        }
+                        acumuladas.push(union.clone());
+                    }
+                    // Acumulado en el orden de las variantes: simula la estrategia
+                    // real, que prueba una y sigue con la siguiente si no alcanzó.
+                    let acumulado: Vec<usize> = acumuladas.iter().map(mejor_pagina).collect();
+                    let nombre = ruta.file_name().unwrap().to_string_lossy().to_string();
+                    filas.lock().unwrap().push((nombre, acumulado, por_variante));
+                });
+            }
+        });
+
+        let mut filas = filas.into_inner().unwrap();
+        filas.sort();
+        println!("archivo          mitad  cual  3/4  sombra || acumulado");
+        for (nombre, acum, v) in &filas {
+            println!(
+                "{nombre}  {:>4} {:>5} {:>4} {:>7} || {:?}",
+                v[0], v[1], v[2], v[3], acum
+            );
+        }
+
+        // Lo que decide es cuántas hojas quedan utilizables, no cuántos
+        // marcadores sueltos se ven: con 3 el recorte es exacto, con 2 alcanza
+        // para ubicar la hoja.
+        for (v, (nombre, _)) in variantes.iter().enumerate() {
+            let tres = filas.iter().filter(|(_, _, c)| c[v] >= 3).count();
+            let dos = filas.iter().filter(|(_, _, c)| c[v] == 2).count();
+            println!("{nombre:>12}: {tres:>3} con 3+ · {dos:>3} con 2");
+        }
+        println!("
+acumulando pasadas, en ese orden:");
+        for (v, (nombre, _)) in variantes.iter().enumerate() {
+            let tres = filas.iter().filter(|(_, a, _)| a[v] >= 3).count();
+            let dos = filas.iter().filter(|(_, a, _)| a[v] == 2).count();
+            println!("  hasta {nombre:>12}: {tres:>3} con 3+ · {dos:>3} con 2");
+        }
     }
 
     /// Herramienta de banco: toma una foto real y deja el escaneo rectificado en
