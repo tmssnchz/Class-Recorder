@@ -98,13 +98,29 @@ fn juntar_archivos(
 }
 
 /// Cuánto va a ocupar el respaldo, para poder avisar antes de arrancar.
+///
+/// Va a un hilo de bloqueo y no al principal. Un comando síncrono de Tauri corre
+/// en el hilo que atiende los mensajes de la ventana, y esto recorre la carpeta
+/// de grabaciones entera pidiendo `metadata` archivo por archivo: con unas
+/// decenas de clases eso es casi un minuto con la ventana en "no responde",
+/// justo al abrir Ajustes.
 #[tauri::command]
-pub fn medir_respaldo(
+pub async fn medir_respaldo(
     carpeta_raiz: String,
     carpeta_datos: String,
     incluir_audio: bool,
 ) -> Result<ResumenRespaldo, String> {
-    let raiz = PathBuf::from(&carpeta_raiz);
+    tauri::async_runtime::spawn_blocking(move || medir(&carpeta_raiz, &carpeta_datos, incluir_audio))
+        .await
+        .map_err(|e| format!("La medición se interrumpió: {e}"))?
+}
+
+fn medir(
+    carpeta_raiz: &str,
+    carpeta_datos: &str,
+    incluir_audio: bool,
+) -> Result<ResumenRespaldo, String> {
+    let raiz = PathBuf::from(carpeta_raiz);
     let mut resumen = ResumenRespaldo::default();
 
     if raiz.exists() {
@@ -117,7 +133,7 @@ pub fn medir_respaldo(
     }
 
     for nombre in ["datos.json", "config.json"] {
-        let ruta = PathBuf::from(&carpeta_datos).join(nombre);
+        let ruta = PathBuf::from(carpeta_datos).join(nombre);
         if let Ok(meta) = std::fs::metadata(&ruta) {
             resumen.archivos += 1;
             resumen.bytes += meta.len();
