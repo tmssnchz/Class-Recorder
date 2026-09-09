@@ -175,6 +175,10 @@ pub fn run() {
                     permitir_microfono(&ventana);
                 }
             }
+            // Las vistas previas de los apuntes se acumulan en el temporal y
+            // nada las sacaba nunca. En un hilo aparte: recorrer la carpeta no
+            // tiene por qué demorar la ventana.
+            std::thread::spawn(escaneo::limpiar_vistas_viejas);
             let _ = app;
             Ok(())
         })

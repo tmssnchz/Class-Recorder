@@ -39,6 +39,16 @@ export interface AnalisisFoto {
    * vería girada respecto de los tiradores.
    */
   vistaPrevia: string;
+  /**
+   * La misma foto a 480 px, para las grillas de miniaturas. El mesón pinta una
+   * tarjeta de 190 px por hoja: darle la vista previa de 1600 px le cuesta al
+   * webview unos 7,7 megapíxeles decodificados por tarjeta, y con una tanda
+   * grande eso es lo que deja la ventana sin responder.
+   *
+   * Puede faltar en un reparto a medias guardado por una versión anterior a la
+   * 0.9.3: ahí se cae a `vistaPrevia`.
+   */
+  miniatura?: string;
   /** TL, TR, BR, BL en píxeles de la foto. */
   esquinas: Esquina[];
   /**

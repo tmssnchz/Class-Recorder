@@ -17,7 +17,7 @@
 //!   - Sin marcadores: por contraste hoja/fondo. Es más frágil, y por eso la
 //!     interfaz siempre deja corregir las cuatro esquinas a mano.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use image::{DynamicImage, GrayImage, ImageBuffer, Luma, Rgb, RgbImage};
 use imageproc::contours::{find_contours, BorderType};
@@ -164,6 +164,16 @@ pub struct AnalisisFoto {
     /// Mostrando los mismos píxeles que se midieron, no hay forma de que se
     /// desincronicen.
     pub vista_previa: String,
+    /// JPEG temporal mucho más chico, para las grillas de miniaturas.
+    ///
+    /// El mesón de organización pinta una tarjeta de 190 px por foto: darle la
+    /// vista previa de 1600 px obliga al webview a decodificar y a guardar en
+    /// memoria unos 7,7 megapíxeles por tarjeta para mostrar 0,04. Con una
+    /// tanda de sesenta hojas eso son cientos de MB de mapas de bits y una
+    /// interfaz que deja de responder. Esta es la misma foto a 480 px; la vista
+    /// previa sigue existiendo para el editor de esquinas y para el zoom, que
+    /// es donde sí se mira de cerca.
+    pub miniatura: String,
     /// Esquinas de la hoja en píxeles de la foto, en orden TL, TR, BR, BL.
     pub esquinas: Vec<Esquina>,
     /// Cómo se encontraron las esquinas:
@@ -652,42 +662,103 @@ pub async fn analizar_foto(
 /// esquinas sin mandarle 12 megapíxeles al webview por cada foto.
 const LADO_VISTA_PX: u32 = 1600;
 
-/// Escribe la vista previa orientada en el temporal del sistema y devuelve su
-/// ruta. El nombre sale de la ruta de origen, así que reprocesar la misma foto
-/// reusa el archivo en vez de acumular basura.
-fn guardar_vista_previa(img: &DynamicImage, ruta_origen: &str) -> Result<String, String> {
+/// Lado largo de la miniatura de las grillas. La tarjeta más grande del mesón
+/// mide 300 px de alto, así que 480 deja margen para pantallas con más de un
+/// píxel físico por punto sin acercarse al costo de la vista previa.
+const LADO_MINIATURA_PX: u32 = 480;
+
+/// Carpeta del temporal del sistema donde viven las vistas previas y sus
+/// miniaturas.
+fn carpeta_vistas() -> PathBuf {
+    std::env::temp_dir().join("classrecorder-vistas")
+}
+
+/// Cuántos días se guarda una vista previa antes de que `limpiar_vistas_viejas`
+/// la borre. Alcanza para retomar al día siguiente un reparto a medias sin
+/// volver a analizar la tanda; más que eso es basura que nadie va a mirar.
+const DIAS_DE_VISTAS: u64 = 7;
+
+/// Borra las vistas previas que ya no le sirven a nadie.
+///
+/// Cada foto analizada deja dos JPEG en el temporal y nada los sacaba nunca:
+/// después de unas cuantas tandas son cientos de archivos y decenas de MB ahí
+/// para siempre. Se llama al arrancar la app, en un hilo aparte, porque recorrer
+/// la carpeta no tiene por qué demorar el arranque de la ventana. Borrar de más
+/// no rompe nada: la vista previa se vuelve a generar en el siguiente análisis.
+pub fn limpiar_vistas_viejas() {
+    let Ok(entradas) = std::fs::read_dir(carpeta_vistas()) else {
+        return;
+    };
+    let limite = std::time::Duration::from_secs(DIAS_DE_VISTAS * 24 * 60 * 60);
+    let ahora = std::time::SystemTime::now();
+    for entrada in entradas.flatten() {
+        let vieja = entrada
+            .metadata()
+            .and_then(|m| m.modified())
+            .map(|t| ahora.duration_since(t).unwrap_or_default() > limite)
+            .unwrap_or(false);
+        if vieja {
+            let _ = std::fs::remove_file(entrada.path());
+        }
+    }
+}
+
+/// Escribe la vista previa orientada y su miniatura en el temporal del sistema
+/// y devuelve las dos rutas, en ese orden.
+///
+/// El nombre sale de la ruta de origen, así que reprocesar la misma foto reusa
+/// los archivos en vez de acumular basura.
+fn guardar_vistas(img: &DynamicImage, ruta_origen: &str) -> Result<(String, String), String> {
     let mut hash: u64 = 1469598103934665603;
     for b in ruta_origen.as_bytes() {
         hash ^= *b as u64;
         hash = hash.wrapping_mul(1099511628211);
     }
-    let dir = std::env::temp_dir().join("classrecorder-vistas");
+    let dir = carpeta_vistas();
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("No se pudo crear {}: {e}", dir.display()))?;
-    let destino = dir.join(format!("{hash:016x}.jpg"));
 
-    let (w, h) = (img.width(), img.height());
-    let reducida = if w.max(h) > LADO_VISTA_PX {
-        let escala = LADO_VISTA_PX as f32 / w.max(h) as f32;
-        img.resize(
-            (w as f32 * escala).round() as u32,
-            (h as f32 * escala).round() as u32,
-            image::imageops::FilterType::Triangle,
-        )
-    } else {
-        img.clone()
-    };
+    // La miniatura sale de la vista previa ya reducida y no del original: bajar
+    // de 1600 px a 480 cuesta una fracción de bajar de 4032, y a ese tamaño la
+    // diferencia de calidad no se ve.
+    let vista = escalar_a(img, LADO_VISTA_PX);
+    let mini = escalar_a(&vista, LADO_MINIATURA_PX);
 
-    let ruta = destino.to_string_lossy().to_string();
-    guardar_jpeg(&reducida, &ruta, 85)?;
-    Ok(ruta)
+    let ruta_vista = dir.join(format!("{hash:016x}.jpg")).to_string_lossy().to_string();
+    let ruta_mini = dir
+        .join(format!("{hash:016x}-mini.jpg"))
+        .to_string_lossy()
+        .to_string();
+    guardar_jpeg(&vista, &ruta_vista, 85)?;
+    guardar_jpeg(&mini, &ruta_mini, 80)?;
+    Ok((ruta_vista, ruta_mini))
+}
+
+/// Reduce hasta que el lado largo mida `lado`. Si ya era más chica se clona tal
+/// cual: agrandarla no agrega detalle y sí cuesta memoria.
+fn escalar_a(img: &DynamicImage, lado: u32) -> DynamicImage {
+    let mayor = img.width().max(img.height());
+    if mayor <= lado {
+        return img.clone();
+    }
+    let escala = lado as f32 / mayor as f32;
+    img.resize(
+        (img.width() as f32 * escala).round().max(1.0) as u32,
+        (img.height() as f32 * escala).round().max(1.0) as u32,
+        image::imageops::FilterType::Triangle,
+    )
 }
 
 fn analizar(ruta: &str, geometria_defecto: GeometriaPlantilla) -> Result<AnalisisFoto, String> {
     let img = abrir_con_orientacion(Path::new(ruta))?;
     let gris = img.to_luma8();
     let (ancho, alto) = (gris.width(), gris.height());
-    let vista_previa = guardar_vista_previa(&img, ruta)?;
+    let (vista_previa, miniatura) = guardar_vistas(&img, ruta)?;
+    // La foto en color son 36 MB para 12 megapíxeles y ya no hace falta: de acá
+    // en adelante todo trabaja sobre `gris`. Soltarla ahora en vez de al final
+    // de la función le saca 36 MB a cada análisis en vuelo, que con tres a la
+    // vez es lo que decide si la app cabe en una máquina de 8 GB.
+    drop(img);
 
     let nitidez = nitidez_de(&gris);
     let brillo = brillo_de(&gris);
@@ -749,6 +820,7 @@ fn analizar(ruta: &str, geometria_defecto: GeometriaPlantilla) -> Result<Analisi
                     ancho,
                     alto,
                     vista_previa,
+                    miniatura,
                     esquinas: esquinas.to_vec(),
                     fuente: "marcadores".into(),
                     geometria: Some(geo),
@@ -772,6 +844,7 @@ fn analizar(ruta: &str, geometria_defecto: GeometriaPlantilla) -> Result<Analisi
                     ancho,
                     alto,
                     vista_previa,
+                    miniatura,
                     esquinas: esquinas.to_vec(),
                     fuente: "marcadores-parciales".into(),
                     geometria: Some(geo),
@@ -805,6 +878,7 @@ fn analizar(ruta: &str, geometria_defecto: GeometriaPlantilla) -> Result<Analisi
             ancho,
             alto,
             vista_previa,
+            miniatura,
             esquinas: esquinas.to_vec(),
             fuente: "contraste".into(),
             geometria: geometria_pagina,
@@ -823,6 +897,7 @@ fn analizar(ruta: &str, geometria_defecto: GeometriaPlantilla) -> Result<Analisi
                 ancho,
                 alto,
                 vista_previa,
+                miniatura,
                 // Encuadre completo: es el punto de partida para arrastrarlas.
                 esquinas: vec![
                     Esquina { x: 0.0, y: 0.0 },
@@ -1978,6 +2053,67 @@ acumulando pasadas, en ese orden:");
         })
         .expect("se rectifica");
         println!("escaneo {}x{} en {}", info.ancho, info.alto, info.archivo);
+    }
+
+    /// La miniatura del mesón tiene que salir de verdad más chica.
+    ///
+    /// Es lo único que separa una grilla de sesenta tarjetas de mandarle al
+    /// webview sesenta imágenes de 1600 px para pintarlas a 190. Si alguien
+    /// vuelve a apuntar las tarjetas a `vista_previa`, o si `escalar_a` deja de
+    /// reducir, la pantalla vuelve a colgarse y nada más se entera.
+    #[test]
+    fn la_miniatura_sale_mas_chica_que_la_vista_previa() {
+        let grande = DynamicImage::ImageRgb8(image::RgbImage::new(4032, 3024));
+        let (vista, mini) = guardar_vistas(&grande, "prueba-miniatura").expect("se guardan");
+        assert_ne!(vista, mini, "son dos archivos distintos");
+
+        let v = image::open(&vista).expect("se abre la vista previa");
+        let m = image::open(&mini).expect("se abre la miniatura");
+        assert_eq!(v.width().max(v.height()), LADO_VISTA_PX);
+        assert_eq!(m.width().max(m.height()), LADO_MINIATURA_PX);
+        assert!(
+            std::fs::metadata(&mini).unwrap().len() < std::fs::metadata(&vista).unwrap().len(),
+            "la miniatura tiene que pesar menos"
+        );
+
+        // Una foto ya chica no se agranda: eso solo gastaría memoria.
+        let chica = DynamicImage::ImageRgb8(image::RgbImage::new(300, 200));
+        let igual = escalar_a(&chica, LADO_MINIATURA_PX);
+        assert_eq!((igual.width(), igual.height()), (300, 200));
+
+        let _ = std::fs::remove_file(&vista);
+        let _ = std::fs::remove_file(&mini);
+    }
+
+    /// La limpieza tiene que llevarse las vistas viejas y dejar las de hoy.
+    ///
+    /// Si se pasa de largo, un reparto a medias guardado ayer vuelve sin
+    /// miniaturas; si se queda corta, la carpeta sigue creciendo para siempre,
+    /// que es de donde salió esto.
+    #[test]
+    fn la_limpieza_se_lleva_las_vistas_viejas_y_no_las_nuevas() {
+        let dir = carpeta_vistas();
+        std::fs::create_dir_all(&dir).expect("se crea la carpeta");
+
+        let vieja = dir.join("prueba-vieja.jpg");
+        let nueva = dir.join("prueba-nueva.jpg");
+        std::fs::write(&vieja, b"x").expect("se escribe");
+        std::fs::write(&nueva, b"x").expect("se escribe");
+
+        let hace_mucho = std::time::SystemTime::now()
+            - std::time::Duration::from_secs((DIAS_DE_VISTAS + 1) * 24 * 60 * 60);
+        std::fs::File::options()
+            .write(true)
+            .open(&vieja)
+            .expect("se abre")
+            .set_modified(hace_mucho)
+            .expect("se le cambia la fecha");
+
+        limpiar_vistas_viejas();
+        assert!(!vieja.exists(), "la vieja se borra");
+        assert!(nueva.exists(), "la de hoy se queda");
+
+        let _ = std::fs::remove_file(&nueva);
     }
 
     /// El PNG que se le manda al generador de la plantilla tiene que llegar
