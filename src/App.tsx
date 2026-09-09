@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 
 import { ApuntesPanel } from "./components/ApuntesPanel";
 import { BibliotecaPanel } from "./components/BibliotecaPanel";
@@ -45,8 +46,27 @@ export default function App() {
   );
 }
 
+/**
+ * Versión de la app, tal como quedó en el ejecutable instalado.
+ *
+ * Sale de `getVersion()` y no de `package.json`: lo que hace falta saber no es
+ * qué versión se compiló sino cuál se está corriendo. Ya pasó de reportar bugs
+ * sobre una build vieja sin que nadie pudiera notarlo, así que el número va a la
+ * vista en la barra lateral y no escondido en Configuración.
+ */
+function useVersion(): string | null {
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => {
+    void getVersion()
+      .then(setVersion)
+      .catch(() => setVersion(null));
+  }, []);
+  return version;
+}
+
 function Contenido() {
   const [vista, setVista] = useState<Vista>("grabar");
+  const version = useVersion();
   // Los apuntes se leen en la Biblioteca y se arreglan en Digitalizar. Este
   // salto es el puente entre las dos: abre la pestaña de taller directamente en
   // el apunte que se estaba mirando, en vez de hacerlo buscar de nuevo.
@@ -149,9 +169,12 @@ function Contenido() {
         )}
 
         <div className="barra-pie sutil">
-          {datos.clases.length} {datos.clases.length === 1 ? "clase" : "clases"}{" "}
-          · {datos.grabaciones.length}{" "}
-          {datos.grabaciones.length === 1 ? "grabación" : "grabaciones"}
+          <div>
+            {datos.clases.length} {datos.clases.length === 1 ? "clase" : "clases"}{" "}
+            · {datos.grabaciones.length}{" "}
+            {datos.grabaciones.length === 1 ? "grabación" : "grabaciones"}
+          </div>
+          {version && <div className="barra-version">v{version}</div>}
         </div>
       </nav>
 
