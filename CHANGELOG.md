@@ -4,6 +4,34 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Este proyecto todavía no sigue versionado semántico estricto (está en `0.x`,
 así que cualquier versión puede traer cambios incompatibles).
 
+## [0.9.3] - 2026-09-09
+
+### Arreglado
+
+- **El mesón de organización aplastaba las hojas y colgaba la ventana.** Las
+  tarjetas se pintaban como tiras de 40 px con la hoja recortada, y la app
+  quedaba en "no responde" toda la tanda. La tarjeta lleva `overflow: hidden`
+  para recortar la miniatura, y eso le da tamaño mínimo cero; el mesón tiene
+  alto definido, así que el navegador repartía ese alto entre las veinte filas.
+  Aplastadas, las 62 tarjetas entraban en pantalla y el webview decodificaba las
+  62 vistas previas de 1600 px a la vez, unos 475 MB de mapas de bits. Ahora las
+  filas miden lo que mide su tarjeta, el mesón scrollea, y las grillas usan una
+  miniatura propia de 480 px en vez de la vista previa grande.
+- **El mesón se puede usar mientras analiza.** Antes no aparecía hasta tener la
+  tanda entera analizada —entre dos y cuatro segundos por foto— así que con 62
+  hojas eran más de sesenta segundos de pantalla muerta. Ahora se pinta desde la
+  primera hoja lista y las que faltan son tarjetas vacías del mismo tamaño. El
+  orden por número de página se aplica una sola vez, al final: ordenar sobre la
+  marcha haría saltar cada hoja a su lugar y arrastrar sería imposible.
+- **Abrir Ajustes congelaba la ventana un minuto.** `medir_respaldo` era un
+  comando síncrono, o sea que corría en el hilo que atiende los mensajes de la
+  ventana, y recorre la carpeta de grabaciones entera archivo por archivo. Pasa
+  a un hilo de bloqueo.
+- **Las vistas previas de los apuntes se acumulaban en el temporal.** Cada foto
+  analizada dejaba dos JPEG que nadie borraba nunca. Al arrancar se limpian las
+  de más de siete días, que es margen de sobra para retomar al día siguiente un
+  reparto a medias sin volver a analizar la tanda.
+
 ## [0.9.2] - 2026-09-09
 
 ### Arreglado
