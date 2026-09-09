@@ -4,6 +4,17 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Este proyecto todavía no sigue versionado semántico estricto (está en `0.x`,
 así que cualquier versión puede traer cambios incompatibles).
 
+## [0.9.4] - 2026-09-09
+
+### Agregado
+
+- **La barra lateral dice qué versión está instalada.** No había forma de saberlo
+  desde la app, y ya costó caro: se reportaron como pendientes dos bugs que ya
+  estaban arreglados, porque el ejecutable instalado era anterior al arreglo y
+  nada en pantalla lo delataba. El número sale del ejecutable en sí, no de lo que
+  diga el repositorio, y va al pie de la barra lateral para que se vea desde
+  cualquier pestaña.
+
 ## [0.9.3] - 2026-09-09
 
 ### Arreglado
