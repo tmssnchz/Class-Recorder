@@ -2775,11 +2775,18 @@ mark {
   cursor: grab;
 }
 
-.organizar-paginas img {
+/* `.hoja-esperando` es el hueco de una hoja que todavía se está analizando.
+   Ocupa exactamente lo mismo que la miniatura que va a reemplazarlo, así la
+   grilla no se reacomoda cuando llega. Sin animación a propósito: sesenta
+   tarjetas latiendo a la vez es justo la carga de compositor que esta pantalla
+   trata de evitar. */
+.organizar-paginas img,
+.organizar-paginas .hoja-esperando {
   -webkit-user-drag: none;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  background: var(--superficie-2);
 }
 
 .organizar-paginas span {
@@ -2792,6 +2799,18 @@ mark {
   color: #fff;
 }
 
+/* Avance del análisis, arriba del mesón: la tanda se reparte mientras se
+   analiza, así que esto convive con las tarjetas en vez de tapar la pantalla. */
+.organizar-avance {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.organizar-avance p {
+  margin: 0;
+}
+
 /* ------------------------------------------------------------- el mesón */
 
 .organizar-meson {
@@ -2800,6 +2819,17 @@ mark {
   overflow-y: auto;
   display: grid;
   gap: 10px;
+  /* Sin esto la grilla aplasta las tarjetas.
+     El mesón es un item flex con `flex: 1`, o sea que tiene alto definido, y
+     sus filas son implícitas y automáticas. La tarjeta lleva `overflow: hidden`
+     para recortar la miniatura, y eso le da tamaño mínimo automático cero: el
+     navegador reparte el alto disponible entre las veinte filas y cada tarjeta
+     queda en 40 px, con la hoja de 190 px recortada a una tira. Con filas de
+     `max-content` cada fila mide lo que mide su tarjeta y el mesón scrollea,
+     que es lo que ya hacía `overflow-y: auto`.
+     De paso arregla la memoria: aplastadas, las 62 tarjetas entraban en
+     pantalla y `loading="lazy"` no se saltaba ninguna imagen. */
+  grid-auto-rows: max-content;
   align-content: start;
   padding: 4px;
   background: var(--superficie-2);
@@ -2832,7 +2862,8 @@ mark {
   box-shadow: 0 0 0 2px var(--primario-suave);
 }
 
-.organizar-hoja img {
+.organizar-hoja img,
+.organizar-hoja .hoja-esperando {
   /* Sin esto, el navegador arrastra la imagen suelta en vez de la tarjeta y el
      destino nunca recibe la hoja. */
   -webkit-user-drag: none;
@@ -2855,10 +2886,12 @@ mark {
   aspect-ratio: 1;
 }
 
-.meson-chico .organizar-hoja img {
+.meson-chico .organizar-hoja img,
+.meson-chico .organizar-hoja .hoja-esperando {
   height: 130px;
 }
-.meson-grande .organizar-hoja img {
+.meson-grande .organizar-hoja img,
+.meson-grande .organizar-hoja .hoja-esperando {
   height: 300px;
 }
 

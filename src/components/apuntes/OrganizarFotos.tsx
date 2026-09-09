@@ -111,6 +111,23 @@ interface Props {
   onCancelar(): void;
 }
 
+/**
+ * De dónde sale la imagen de una tarjeta.
+ *
+ * Devuelve `null` cuando la foto todavía no se analizó, que ahora es un estado
+ * normal: el mesón se pinta desde la primera hoja lista y las que faltan se
+ * dibujan como tarjeta vacía, del mismo tamaño, para que la grilla no se mueva
+ * cuando llegan.
+ *
+ * `miniatura` puede faltar en un reparto guardado por una versión anterior a la
+ * 0.9.3; ahí se cae a la vista previa, que pesa ocho veces más pero existe
+ * siempre.
+ */
+function fuenteMiniatura(a: AnalisisFoto | undefined): string | null {
+  const ruta = a?.miniatura ?? a?.vistaPrevia;
+  return ruta ? convertFileSrc(ruta) : null;
+}
+
 function tituloDe(clase: Clase | null, unidadNombre: string | null): string {
   const fecha = new Date().toISOString().slice(0, 10);
   return `Apunte ${fecha} - ${unidadNombre ?? clase?.nombre ?? SIN_CLASE}`;
@@ -233,7 +250,17 @@ export function OrganizarFotos({
   // Las que no se pudieron abrir no entran al mesón: no hay nada que mirar ni
   // nada que recortar después.
   const utilizables = useMemo(() => fotos.filter((f) => !fallidas.has(f)), [fotos, fallidas]);
-  const ordenadas = useMemo(() => ordenDelMeson(utilizables, numeros), [utilizables, numeros]);
+  /**
+   * Mientras se analiza, el mesón queda en el orden en que se sacaron las fotos.
+   * Ordenarlo sobre la marcha haría que cada hoja recién analizada saltara desde
+   * el final hasta el lugar que le da su número: la grilla se reacomodaría una
+   * vez por foto, debajo del cursor, y arrastrar sería imposible. Se ordena una
+   * sola vez, cuando ya están todas.
+   */
+  const ordenadas = useMemo(
+    () => (listo ? ordenDelMeson(utilizables, numeros) : utilizables),
+    [listo, numeros, utilizables],
+  );
   const repetidos = useMemo(() => numerosRepetidos(utilizables, numeros), [utilizables, numeros]);
   const meson = useMemo(() => sinAsignar(ordenadas, grupos), [ordenadas, grupos]);
 
@@ -420,54 +447,6 @@ export function OrganizarFotos({
 
   // ------------------------------------------------------------ render
 
-  if (!listo) {
-    return (
-      <div className="organizar">
-        <h3>Preparando la tanda</h3>
-        <div className="progreso">
-          <div
-            className="progreso-valor"
-            style={{ width: `${fotos.length ? (analizadas / fotos.length) * 100 : 0}%` }}
-          />
-        </div>
-        <p className="sutil">
-          Analizando {analizadas} de {fotos.length} fotos: se buscan los marcadores y los
-          bordes de cada hoja. Esto se hace una sola vez — el recorte de después
-          reusa lo que salga de acá.
-        </p>
-        {restaurado && grupos.length > 0 && (
-        <div className="aviso aviso-info">
-          <Icono nombre="check" />
-          <span>
-            Se recuperó el reparto que tenías a medias:{" "}
-            {grupos.reduce((t, g) => t + g.fotos.length, 0)} hojas repartidas en {grupos.length}{" "}
-            {grupos.length === 1 ? "apunte" : "apuntes"}.
-          </span>
-          <button
-            className="btn"
-            onClick={() => {
-              olvidarSesion();
-              cambiar([]);
-              setRestaurado(false);
-            }}
-          >
-            Empezar de nuevo
-          </button>
-        </div>
-      )}
-
-      {fallidas.size > 0 && (
-          <p className="sutil">
-            {fallidas.size} {fallidas.size === 1 ? "foto no se pudo abrir" : "fotos no se pudieron abrir"}.
-          </p>
-        )}
-        <button className="btn" onClick={onCancelar}>
-          Cancelar
-        </button>
-      </div>
-    );
-  }
-
   const asignadas = grupos.reduce((t, g) => t + g.fotos.length, 0);
   const gruposConFotos = grupos.filter((g) => g.fotos.length > 0);
   const claseDelForm = datos.clases.find((c) => c.id === formGrupo?.claseId) ?? null;
@@ -498,6 +477,44 @@ export function OrganizarFotos({
           Cancelar
         </button>
       </div>
+
+      {!listo && (
+        <div className="organizar-avance">
+          <div className="progreso">
+            <div
+              className="progreso-valor"
+              style={{ width: `${fotos.length ? (analizadas / fotos.length) * 100 : 0}%` }}
+            />
+          </div>
+          <p className="sutil">
+            Analizando {analizadas} de {fotos.length} fotos: se buscan los marcadores y los
+            bordes de cada hoja. Las que ya están se pueden mirar y repartir desde ahora, y
+            el resto va apareciendo. Cuando termine, el mesón se ordena por número de
+            página.
+          </p>
+        </div>
+      )}
+
+      {restaurado && grupos.length > 0 && (
+        <div className="aviso aviso-info">
+          <Icono nombre="check" />
+          <span>
+            Se recuperó el reparto que tenías a medias:{" "}
+            {grupos.reduce((t, g) => t + g.fotos.length, 0)} hojas repartidas en {grupos.length}{" "}
+            {grupos.length === 1 ? "apunte" : "apuntes"}.
+          </span>
+          <button
+            className="btn"
+            onClick={() => {
+              olvidarSesion();
+              cambiar([]);
+              setRestaurado(false);
+            }}
+          >
+            Empezar de nuevo
+          </button>
+        </div>
+      )}
 
       {fallidas.size > 0 && (
         <div className="aviso aviso-error">
@@ -632,52 +649,60 @@ export function OrganizarFotos({
               </p>
               {g.fotos.length > 0 && (
                 <ol className="organizar-paginas">
-                  {g.fotos.map((f, indice) => (
-                    <li
-                      key={f}
-                      className={
-                        sobre?.clave === g.clave && sobre.indice === indice ? "destino" : undefined
-                      }
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData("text/plain", f);
-                        e.dataTransfer.setData("application/x-indice", String(indice));
-                      }}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        setSobre({ clave: g.clave, indice });
-                      }}
-                      onDragLeave={() => setSobre(null)}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        setSobre(null);
-                        const crudo = e.dataTransfer.getData("application/x-indice");
-                        // Sin índice, lo que se está soltando viene del mesón y no
-                        // es un reordenamiento. Sin esta guarda, `Number("")` da 0
-                        // y la hoja arrastrada movía en silencio la primera página
-                        // del apunte en vez de entrar en él.
-                        if (crudo === "") return;
-                        e.stopPropagation();
-                        const desde = Number(crudo);
-                        if (Number.isInteger(desde)) {
-                          cambiar(moverEnGrupo(grupos, g.clave, desde, indice));
+                  {g.fotos.map((f, indice) => {
+                    const src = fuenteMiniatura(analisis.get(f));
+                    return (
+                      <li
+                        key={f}
+                        className={
+                          sobre?.clave === g.clave && sobre.indice === indice ? "destino" : undefined
                         }
-                      }}
-                      onMouseEnter={() => (encima.current = f)}
-                      onMouseLeave={() => (encima.current = null)}
-                      data-giro={giros.get(f) ?? 0}
-                      title={`Página ${indice + 1} — arrástrala para moverla de lugar, o mantén Espacio encima para verla grande`}
-                    >
-                      <img
-                        src={convertFileSrc(analisis.get(f)?.vistaPrevia ?? "")}
-                        alt={`Página ${indice + 1}`}
-                        loading="lazy"
-                        draggable={false}
-                        style={{ transform: `rotate(${(giros.get(f) ?? 0) * 90}deg)` }}
-                      />
-                      <span>{indice + 1}</span>
-                    </li>
-                  ))}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("text/plain", f);
+                          e.dataTransfer.setData("application/x-indice", String(indice));
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setSobre({ clave: g.clave, indice });
+                        }}
+                        onDragLeave={() => setSobre(null)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setSobre(null);
+                          const crudo = e.dataTransfer.getData("application/x-indice");
+                          // Sin índice, lo que se está soltando viene del mesón y no
+                          // es un reordenamiento. Sin esta guarda, `Number("")` da 0
+                          // y la hoja arrastrada movía en silencio la primera página
+                          // del apunte en vez de entrar en él.
+                          if (crudo === "") return;
+                          e.stopPropagation();
+                          const desde = Number(crudo);
+                          if (Number.isInteger(desde)) {
+                            cambiar(moverEnGrupo(grupos, g.clave, desde, indice));
+                          }
+                        }}
+                        onMouseEnter={() => (encima.current = f)}
+                        onMouseLeave={() => (encima.current = null)}
+                        data-giro={giros.get(f) ?? 0}
+                        title={`Página ${indice + 1} — arrástrala para moverla de lugar, o mantén Espacio encima para verla grande`}
+                      >
+                        {src ? (
+                          <img
+                            src={src}
+                            alt={`Página ${indice + 1}`}
+                            loading="lazy"
+                            decoding="async"
+                            draggable={false}
+                            style={{ transform: `rotate(${(giros.get(f) ?? 0) * 90}deg)` }}
+                          />
+                        ) : (
+                          <div className="hoja-esperando" />
+                        )}
+                        <span>{indice + 1}</span>
+                      </li>
+                    );
+                  })}
                 </ol>
               )}
             </div>
@@ -697,6 +722,7 @@ export function OrganizarFotos({
             meson.map((f) => {
               const a = analisis.get(f);
               const numero = a?.pagina ?? null;
+              const src = fuenteMiniatura(a);
               return (
                 <figure
                   key={f}
@@ -707,14 +733,19 @@ export function OrganizarFotos({
                   onMouseEnter={() => (encima.current = f)}
                   onMouseLeave={() => (encima.current = null)}
                 >
-                  <img
-                    src={convertFileSrc(a?.vistaPrevia ?? "")}
-                    alt={nombreArchivo(f)}
-                    loading="lazy"
-                    draggable={false}
-                    data-giro={giros.get(f) ?? 0}
-                    style={{ transform: `rotate(${(giros.get(f) ?? 0) * 90}deg)` }}
-                  />
+                  {src ? (
+                    <img
+                      src={src}
+                      alt={nombreArchivo(f)}
+                      loading="lazy"
+                      decoding="async"
+                      draggable={false}
+                      data-giro={giros.get(f) ?? 0}
+                      style={{ transform: `rotate(${(giros.get(f) ?? 0) * 90}deg)` }}
+                    />
+                  ) : (
+                    <div className="hoja-esperando" title={nombreArchivo(f)} />
+                  )}
                   <button
                     className="organizar-girar"
                     onClick={(e) => {
@@ -736,7 +767,9 @@ export function OrganizarFotos({
                     <Icono nombre="lupa" />
                   </button>
                   <figcaption>
-                    {numero === null ? (
+                    {!a ? (
+                      <span className="sutil">analizando…</span>
+                    ) : numero === null ? (
                       <span className="sutil">sin marcador</span>
                     ) : (
                       <span className={repetidos.has(numero) ? "numero-repetido" : undefined}>
@@ -767,21 +800,27 @@ export function OrganizarFotos({
             olvidarSesion();
             onOrganizado(gruposConFotos, analisis, giros);
           }}
-          disabled={meson.length > 0 || gruposConFotos.length === 0}
+          // El recorte trabaja con los análisis ya hechos: dejar seguir con la
+          // tanda a medio analizar mandaría hojas sin esquinas ni número de página.
+          disabled={!listo || meson.length > 0 || gruposConFotos.length === 0}
           title={
-            meson.length > 0
-              ? `Faltan ${meson.length} hojas por repartir.`
-              : "Empieza el recorte de todas las hojas."
+            !listo
+              ? `Todavía se están analizando las hojas: ${analizadas} de ${fotos.length}.`
+              : meson.length > 0
+                ? `Faltan ${meson.length} hojas por repartir.`
+                : "Empieza el recorte de todas las hojas."
           }
         >
           Seguir al recorte
         </button>
       </div>
 
-      {zoom && (
+      {/* Solo se amplía una hoja ya analizada: la vista previa grande la produce
+          el análisis. */}
+      {zoom && analisis.has(zoom) && (
         <div className="organizar-zoom" onClick={() => setZoom(null)}>
           <img
-            src={convertFileSrc(analisis.get(zoom)?.vistaPrevia ?? "")}
+            src={convertFileSrc(analisis.get(zoom)!.vistaPrevia)}
             alt="Hoja ampliada"
             data-giro={giros.get(zoom) ?? 0}
             style={{ transform: `rotate(${(giros.get(zoom) ?? 0) * 90}deg)` }}
