@@ -4,6 +4,19 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 Este proyecto todavía no sigue versionado semántico estricto (está en `0.x`,
 así que cualquier versión puede traer cambios incompatibles).
 
+## [0.9.2] - 2026-09-09
+
+### Arreglado
+
+- **El testigo de reconocimiento sobrevive a cerrar la app.** La cola vive en
+  memoria, así que al cerrarla —o al colgarse y tener que matarla— se perdía, y
+  con ella el recuadro de la barra lateral. Lo ya reconocido nunca se perdía:
+  cada hoja se escribe en `datos.json` apenas termina; lo que faltaba era
+  verlo. El testigo pendiente ahora se cuenta contra `datos.apuntes` y no
+  contra la cola, porque una página sin `motorHtr` es, por definición, trabajo
+  que falta. Queda apagado mientras espera y en color mientras corre, para que
+  "falta hacerlo" no se lea igual que "se está haciendo".
+
 ## [0.9.1] - 2026-09-08
 
 ### Arreglado
