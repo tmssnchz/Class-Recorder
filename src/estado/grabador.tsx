@@ -21,7 +21,7 @@ import {
 import { exists, remove, rename, writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-import { convertirAudio, duracionDe } from "../lib/audio";
+import { convertirAudio, duracionDe, unirTramos } from "../lib/audio";
 import {
   buscarInterrumpidas,
   consultarEspacio,
@@ -45,7 +45,9 @@ import {
   huecoEntreChunks,
   lineaLog,
   mensajeProblemaAudio,
+  mensajeReapertura,
   type ProblemaAudio,
+  type TramoAudio,
 } from "../lib/vigilanciaGrabacion";
 import type { ResultadoTranscripcion } from "../lib/transcripcion";
 import {
@@ -73,6 +75,25 @@ const NIVEL_SILENCIO = 0.015;
 /** Cada cuánto se refresca la metadata parcial en disco. */
 const META_CADA_MS = 15000;
 const BYTES_POR_GB = 1024 ** 3;
+
+/** Tras un corte, cada cuánto se reintenta abrir el micrófono. */
+const REINTENTO_MICROFONO_MS = 5000;
+/** Tras reabrir, pausa mínima antes de poder reabrir de nuevo (evita un bucle). */
+const ENFRIAMIENTO_REAPERTURA_MS = 3000;
+
+const esperar = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+
+function restriccionesAudio(deviceId?: string): MediaStreamConstraints {
+  return {
+    audio: {
+      deviceId: deviceId ? { exact: deviceId } : undefined,
+      channelCount: 1,
+      echoCancellation: false,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
+  };
+}
 
 /** Resumen sin nombres de dispositivo: cuántas entradas hay y si la en uso sigue. */
 async function describirEntradas(pista?: MediaStreamTrack): Promise<string> {
@@ -244,7 +265,15 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
   const problemasRef = useRef(new Set<ProblemaAudio>());
   const logRef = useRef<string[]>([]);
   const logColaRef = useRef<Promise<void>>(Promise.resolve());
-  const quitarEscuchasRef = useRef<(() => void) | null>(null);
+  const quitarEscuchasRef = useRef<(() => void)[]>([]);
+  // Reapertura del micrófono: cada corte abre un segmento nuevo (.segN.part) y
+  // `silenciosRef[i]` es lo que duró el corte antes del segmento i+2.
+  const silenciosRef = useRef<number[]>([]);
+  const ultimoChunkCronRef = useRef(0);
+  const reabriendoRef = useRef(false);
+  const deteniendoRef = useRef(false);
+  const fuenteRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const reabrirRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
     configRef.current = config;
@@ -302,9 +331,220 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
       mensajeProblemaAudio(
         problemasRef.current,
         (performance.now() - ultimoChunkRef.current) / 1000,
-      ),
+      ) ?? mensajeReapertura(silenciosRef.current),
     );
   }, []);
+
+  const estadoPista = useCallback(() => {
+    const pista = streamRef.current?.getAudioTracks()[0];
+    return pista
+      ? `readyState=${pista.readyState}, muted=${pista.muted}, enabled=${pista.enabled}`
+      : "sin pista de audio";
+  }, []);
+
+  /** Dónde escribe el segmento n: el 1 es el .part de siempre. */
+  const rutaSegmento = (n: number): string | null => {
+    const d = destinoRef.current;
+    if (!d) return null;
+    return n === 1
+      ? (rutaEscrituraRef.current ?? d.rutaParcial)
+      : unir(d.carpeta, `${d.base}.seg${n}.part`);
+  };
+
+  const crearRecorder = useCallback(
+    (stream: MediaStream, n: number): MediaRecorder => {
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : "audio/webm";
+      const rec = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 64000 });
+      let primero = true;
+      rec.ondataavailable = (evento) => {
+        if (!evento.data || evento.data.size === 0) {
+          vaciosRef.current++;
+          return;
+        }
+        const ahora = performance.now();
+        const hueco = huecoEntreChunks(ahora, ultimoChunkRef.current);
+        ultimoChunkRef.current = ahora;
+        ultimoChunkCronRef.current = transcurridoMs() / 1000;
+        chunksRef.current++;
+        if (hueco !== null) {
+          registrar("hueco entre fragmentos", `${hueco.toFixed(1)} s sin datos`);
+        }
+        if (problemasRef.current.delete("sin-datos")) {
+          registrar("fragmentos reanudados");
+          refrescarAviso();
+        }
+        const blob = evento.data;
+        colaRef.current = colaRef.current
+          .then(async () => {
+            const bytes = new Uint8Array(await blob.arrayBuffer());
+            // Se lee en cada chunk: si hubo una reasignación de clase/unidad
+            // de por medio, ya apunta al archivo movido.
+            const ruta = rutaSegmento(n);
+            if (!ruta) return;
+            // El primer chunk de un segmento nuevo crea el archivo; el del
+            // segmento 1 ya tiene su .part vacío creado al iniciar.
+            const agregar = n === 1 || !primero;
+            primero = false;
+            await writeFile(ruta, bytes, { append: agregar });
+            bytesRef.current += bytes.byteLength;
+          })
+          .catch((e) => {
+            console.error("Error al guardar un fragmento", e);
+            setError(
+              `Se perdió un fragmento al escribir en disco: ${
+                e instanceof Error ? e.message : String(e)
+              }`,
+            );
+          });
+      };
+      rec.onerror = (evento) => {
+        registrar("error del grabador", String((evento as ErrorEvent).error));
+        setError(`Error del grabador: ${String((evento as ErrorEvent).error)}`);
+      };
+      rec.addEventListener("stop", () =>
+        registrar("MediaRecorder stop", `segmento=${n}, estado=${rec.state}`),
+      );
+      return rec;
+    },
+    [refrescarAviso, registrar, transcurridoMs],
+  );
+
+  const escucharPista = useCallback(
+    (stream: MediaStream) => {
+      const pista = stream.getAudioTracks()[0];
+      if (!pista) return;
+      const escuchar = (tipo: string, fn: () => void) => {
+        pista.addEventListener(tipo, fn);
+        quitarEscuchasRef.current.push(() => pista.removeEventListener(tipo, fn));
+      };
+      const marcar = (p: ProblemaAudio, activo: boolean) => {
+        if (activo) problemasRef.current.add(p);
+        else problemasRef.current.delete(p);
+        refrescarAviso();
+      };
+      escuchar("ended", () => {
+        registrar("pista ended", estadoPista());
+        marcar("ended", true);
+        reabrirRef.current();
+      });
+      escuchar("mute", () => {
+        registrar("pista mute", estadoPista());
+        marcar("mute", true);
+      });
+      escuchar("unmute", () => {
+        registrar("pista unmute", estadoPista());
+        marcar("mute", false);
+      });
+    },
+    [estadoPista, refrescarAviso, registrar],
+  );
+
+  /**
+   * Reabre el micrófono tras un corte y sigue grabando en un segmento nuevo;
+   * `detener` los une rellenando el corte con silencio. Reintenta hasta que
+   * vuelva o se detenga la grabación. Nunca toca lo ya guardado.
+   */
+  const reabrir = useCallback(async () => {
+    if (reabriendoRef.current) return;
+    reabriendoRef.current = true;
+    const activa = () =>
+      (faseRef.current === "grabando" || faseRef.current === "pausado") &&
+      !deteniendoRef.current;
+    try {
+      // El grabador viejo suelta lo que tenga pendiente antes de medir el corte.
+      const viejo = recorderRef.current;
+      if (viejo && viejo.state !== "inactive") {
+        await new Promise<void>((resolver) => {
+          viejo.addEventListener("stop", () => resolver(), { once: true });
+          try {
+            viejo.stop();
+          } catch {
+            resolver();
+          }
+          window.setTimeout(resolver, 1500);
+        });
+      }
+
+      let intento = 0;
+      while (activa()) {
+        intento++;
+        const id = configRef.current.microfonoId;
+        let stream: MediaStream | null = null;
+        let predeterminado = false;
+        let fallo = "";
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(restriccionesAudio(id || undefined));
+        } catch (e) {
+          fallo = e instanceof Error ? e.name : String(e);
+          if (id) {
+            // El micrófono elegido no está: mejor el predeterminado que nada.
+            try {
+              stream = await navigator.mediaDevices.getUserMedia(restriccionesAudio());
+              predeterminado = true;
+            } catch (e2) {
+              fallo = e2 instanceof Error ? e2.name : String(e2);
+            }
+          }
+        }
+
+        if (!stream) {
+          if (intento <= 3 || intento % 12 === 0) {
+            registrar("no se pudo reabrir el micrófono", `intento ${intento}: ${fallo}`);
+          }
+          await esperar(REINTENTO_MICROFONO_MS);
+          continue;
+        }
+        if (!activa()) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        // Desde acá todo es síncrono: `detener` no puede colarse a mitad.
+        const hueco = Math.max(0, transcurridoMs() / 1000 - ultimoChunkCronRef.current);
+        silenciosRef.current.push(hueco);
+        const n = silenciosRef.current.length + 1;
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = stream;
+        const ctx = audioCtxRef.current;
+        const analizador = analizadorRef.current;
+        if (ctx && analizador) {
+          fuenteRef.current?.disconnect();
+          fuenteRef.current = ctx.createMediaStreamSource(stream);
+          fuenteRef.current.connect(analizador);
+        }
+        const rec = crearRecorder(stream, n);
+        recorderRef.current = rec;
+        rec.start(TROZO_MS);
+        if (faseRef.current === "pausado") rec.pause();
+        escucharPista(stream);
+        ultimoChunkRef.current = performance.now();
+        problemasRef.current.delete("ended");
+        problemasRef.current.delete("sin-datos");
+        problemasRef.current.delete("mute");
+        refrescarAviso();
+        registrar(
+          "micrófono reabierto",
+          `segmento ${n}; corte de ${hueco.toFixed(1)} s; intento ${intento}; ${
+            predeterminado ? "con el micrófono predeterminado" : "con el mismo dispositivo"
+          }; ${estadoPista()}`,
+        );
+        await esperar(ENFRIAMIENTO_REAPERTURA_MS);
+        return;
+      }
+    } finally {
+      reabriendoRef.current = false;
+    }
+  }, [
+    crearRecorder,
+    escucharPista,
+    estadoPista,
+    refrescarAviso,
+    registrar,
+    transcurridoMs,
+  ]);
+  reabrirRef.current = () => void reabrir();
 
   // Que el equipo no se suspenda mientras se graba (ni en pausa: ahí no hace
   // falta). El control compartido no la suelta si la cola de transcripciones
@@ -350,9 +590,22 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
           // Se encola detrás de las escrituras de audio pendientes: el rename
           // no puede pisar un chunk que todavía se está apendeando.
           const raiz = raizDeClase(datosRef.current.grabaciones, claseId, cfg.carpetaRaiz);
-          const tarea = colaRef.current.then(() =>
-            moverDestino(d, raiz, new Date(meta.fechaISO), claseNombre, unidadNombre),
-          );
+          const tarea = colaRef.current.then(async () => {
+            const nuevo = await moverDestino(
+              d,
+              raiz,
+              new Date(meta.fechaISO),
+              claseNombre,
+              unidadNombre,
+            );
+            // Los segmentos de la reapertura del micrófono van con el audio.
+            for (let i = 0; i < silenciosRef.current.length; i++) {
+              const de = unir(d.carpeta, `${d.base}.seg${i + 2}.part`);
+              const a = unir(nuevo.carpeta, `${nuevo.base}.seg${i + 2}.part`);
+              if (de !== a && (await exists(de))) await rename(de, a);
+            }
+            return nuevo;
+          });
           colaRef.current = tarea.then(() => undefined).catch(() => undefined);
 
           const nuevo = await tarea;
@@ -454,7 +707,8 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
           estado: "listo" as const,
           errorConversion: null,
           ...(real > 0 ? { duracionSeg: real } : {}),
-          avisoAudio: avisoDuracion(grabacion.duracionSeg, real) ?? undefined,
+          avisoAudio:
+            avisoDuracion(grabacion.duracionSeg, real) ?? grabacion.avisoAudio,
         };
         await actualizarGrabacion(grabacion.id, cambios);
         await escribirMetaGrabacion({ ...grabacion, ...cambios });
@@ -515,8 +769,9 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
   // -------------------------------------------------------------- utilidades
 
   const limpiarRecursos = useCallback(() => {
-    quitarEscuchasRef.current?.();
-    quitarEscuchasRef.current = null;
+    quitarEscuchasRef.current.forEach((f) => f());
+    quitarEscuchasRef.current = [];
+    fuenteRef.current = null;
     if (intervaloRef.current !== null) {
       window.clearInterval(intervaloRef.current);
       intervaloRef.current = null;
@@ -604,15 +859,9 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
         }
 
         // 2. Micrófono.
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            deviceId: cfg.microfonoId ? { exact: cfg.microfonoId } : undefined,
-            channelCount: 1,
-            echoCancellation: false,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-        });
+        const stream = await navigator.mediaDevices.getUserMedia(
+          restriccionesAudio(cfg.microfonoId || undefined),
+        );
         streamRef.current = stream;
 
         // 3. Carpeta y archivo de destino.
@@ -642,59 +891,14 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
         const ctx = new AudioContext();
         const analizador = ctx.createAnalyser();
         analizador.fftSize = 1024;
-        ctx.createMediaStreamSource(stream).connect(analizador);
+        fuenteRef.current = ctx.createMediaStreamSource(stream);
+        fuenteRef.current.connect(analizador);
         audioCtxRef.current = ctx;
         analizadorRef.current = analizador;
         bufferNivelRef.current = new Uint8Array(new ArrayBuffer(analizador.fftSize));
 
         // 5. MediaRecorder.
-        const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus"
-          : "audio/webm";
-        const rec = new MediaRecorder(stream, {
-          mimeType,
-          audioBitsPerSecond: 64000,
-        });
-        rec.ondataavailable = (evento) => {
-          if (!evento.data || evento.data.size === 0) {
-            vaciosRef.current++;
-            return;
-          }
-          const ahora = performance.now();
-          const hueco = huecoEntreChunks(ahora, ultimoChunkRef.current);
-          ultimoChunkRef.current = ahora;
-          chunksRef.current++;
-          if (hueco !== null) {
-            registrar("hueco entre fragmentos", `${hueco.toFixed(1)} s sin datos`);
-          }
-          if (problemasRef.current.delete("sin-datos")) {
-            registrar("fragmentos reanudados");
-            refrescarAviso();
-          }
-          const blob = evento.data;
-          colaRef.current = colaRef.current
-            .then(async () => {
-              const bytes = new Uint8Array(await blob.arrayBuffer());
-              // Se lee en cada chunk: si hubo una reasignación de clase/unidad
-              // de por medio, ya apunta al archivo movido.
-              await writeFile(rutaEscrituraRef.current ?? d.rutaParcial, bytes, {
-                append: true,
-              });
-              bytesRef.current += bytes.byteLength;
-            })
-            .catch((e) => {
-              console.error("Error al guardar un fragmento", e);
-              setError(
-                `Se perdió un fragmento al escribir en disco: ${
-                  e instanceof Error ? e.message : String(e)
-                }`,
-              );
-            });
-        };
-        rec.onerror = (evento) => {
-          registrar("error del grabador", String((evento as ErrorEvent).error));
-          setError(`Error del grabador: ${String((evento as ErrorEvent).error)}`);
-        };
+        const rec = crearRecorder(stream, 1);
         recorderRef.current = rec;
 
         marcasRef.current = [];
@@ -715,51 +919,31 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
         logRef.current = [];
         setAvisoAudio(null);
 
-        const pista = stream.getAudioTracks()[0];
-        const estadoPista = () =>
-          pista
-            ? `readyState=${pista.readyState}, muted=${pista.muted}, enabled=${pista.enabled}`
-            : "sin pista de audio";
-        const quitar: (() => void)[] = [];
+        silenciosRef.current = [];
+        ultimoChunkCronRef.current = 0;
+        reabriendoRef.current = false;
+        deteniendoRef.current = false;
+        escucharPista(stream);
         const escuchar = (obj: EventTarget, tipo: string, fn: () => void) => {
           obj.addEventListener(tipo, fn);
-          quitar.push(() => obj.removeEventListener(tipo, fn));
+          quitarEscuchasRef.current.push(() => obj.removeEventListener(tipo, fn));
         };
-        const marcarProblema = (p: ProblemaAudio, activo: boolean) => {
-          if (activo) problemasRef.current.add(p);
-          else problemasRef.current.delete(p);
-          refrescarAviso();
-        };
-        if (pista) {
-          escuchar(pista, "ended", () => {
-            registrar("pista ended", estadoPista());
-            marcarProblema("ended", true);
-          });
-          escuchar(pista, "mute", () => {
-            registrar("pista mute", estadoPista());
-            marcarProblema("mute", true);
-          });
-          escuchar(pista, "unmute", () => {
-            registrar("pista unmute", estadoPista());
-            marcarProblema("mute", false);
-          });
-        }
         escuchar(navigator.mediaDevices, "devicechange", () => {
-          void describirEntradas(pista).then((r) => registrar("cambio de dispositivos", r));
+          void describirEntradas(streamRef.current?.getAudioTracks()[0]).then((r) =>
+            registrar("cambio de dispositivos", r),
+          );
         });
         escuchar(document, "visibilitychange", () =>
           registrar("visibilidad de la ventana", document.visibilityState),
         );
-        escuchar(rec, "stop", () => registrar("MediaRecorder stop", `estado=${rec.state}`));
         escuchar(ctx, "statechange", () => registrar("AudioContext", ctx.state));
-        quitarEscuchasRef.current = () => quitar.forEach((f) => f());
 
         rec.start(TROZO_MS);
         ponerFase("grabando");
-        void describirEntradas(pista).then((r) =>
+        void describirEntradas(stream.getAudioTracks()[0]).then((r) =>
           registrar(
             "inicio",
-            `${mimeType}; ${estadoPista()}; ${r}; ventana=${document.visibilityState}; empezó ${new Date().toISOString()}`,
+            `${rec.mimeType}; ${estadoPista()}; ${r}; ventana=${document.visibilityState}; empezó ${new Date().toISOString()}`,
           ),
         );
         setSegundos(0);
@@ -817,6 +1001,7 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
                 "sin fragmentos",
                 `más de ${LIMITE_SIN_CHUNKS_MS / 1000} s sin datos; ${estadoPista()}`,
               );
+              reabrirRef.current();
             }
             refrescarAviso();
           }
@@ -857,6 +1042,9 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
     },
     [
       datos.clases,
+      crearRecorder,
+      escucharPista,
+      estadoPista,
       guardarMetaParcial,
       limpiarRecursos,
       nivelActual,
@@ -895,16 +1083,57 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
     else if (faseRef.current === "pausado") reanudar();
   }, [pausar, reanudar]);
 
+  /**
+   * Deja el audio de la grabación en `d.rutaWebm`. Sin cortes es un rename; con
+   * cortes (micrófono reabierto) une los segmentos rellenando cada corte con
+   * silencio. Si la unión falla se conserva al menos el primer segmento y los
+   * demás quedan junto al audio para no perder nada.
+   */
+  const unirSegmentos = useCallback(async (d: Destino): Promise<void> => {
+    const partes: { ruta: string; silencioAntesSeg: number }[] = [];
+    let pendiente = 0;
+    for (let i = 0; i < silenciosRef.current.length; i++) {
+      const ruta = unir(d.carpeta, `${d.base}.seg${i + 2}.part`);
+      pendiente += silenciosRef.current[i];
+      if ((await exists(ruta)) && (await tamanoArchivo(ruta)) > 0) {
+        partes.push({ ruta, silencioAntesSeg: pendiente });
+        pendiente = 0;
+      } else if (await exists(ruta)) {
+        await remove(ruta);
+      }
+    }
+    if (partes.length === 0) {
+      await rename(d.rutaParcial, d.rutaWebm);
+      return;
+    }
+    const tramos: TramoAudio[] = [{ ruta: d.rutaParcial, silencioAntesSeg: 0 }, ...partes];
+    try {
+      await unirTramos(tramos, d.rutaWebm);
+      for (const t of tramos) await remove(t.ruta);
+    } catch (e) {
+      const mensaje = e instanceof Error ? e.message : String(e);
+      registrar("no se pudieron unir los tramos", mensaje);
+      if (await exists(d.rutaWebm)) await remove(d.rutaWebm);
+      await rename(d.rutaParcial, d.rutaWebm);
+      setError(
+        `El micrófono se cortó y no se pudieron unir los tramos de audio. Se guardó el primero; los demás quedaron en ${d.carpeta} (archivos .seg*.part).`,
+      );
+    }
+  }, [registrar]);
+
   const detener = useCallback(async (): Promise<Grabacion | null> => {
     if (faseRef.current !== "grabando" && faseRef.current !== "pausado") return null;
     // Si hay una reasignación de clase/unidad en curso, hay que dejarla
     // terminar: si no, podríamos leer destinoRef.current a mitad del rename.
+    // Desde acá nadie puede reabrir el micrófono a mitad del cierre.
+    deteniendoRef.current = true;
     await reasignacionRef.current;
 
     const rec = recorderRef.current;
     const d = destinoRef.current;
     const meta = metaRef.current;
     if (!rec || !d || !meta) {
+      deteniendoRef.current = false;
       // Sin destino no hay nada que guardar; dejar viva la paralela sería
       // dejar un whisper corriendo contra un archivo que ya no existe.
       void paralelaRef.current?.cancelar();
@@ -939,14 +1168,14 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
       await colaRef.current;
       registrar(
         "cierre",
-        `cronómetro=${duracionSeg.toFixed(1)} s; fragmentos=${chunksRef.current} (~${chunksRef.current * (TROZO_MS / 1000)} s de audio), vacíos=${vaciosRef.current}; bytes=${bytesRef.current}; último fragmento hace ${((performance.now() - ultimoChunkRef.current) / 1000).toFixed(1)} s; problemas=${[...problemasRef.current].join(",") || "ninguno"}`,
+        `cronómetro=${duracionSeg.toFixed(1)} s; fragmentos=${chunksRef.current} (~${chunksRef.current * (TROZO_MS / 1000)} s de audio), vacíos=${vaciosRef.current}; bytes=${bytesRef.current}; último fragmento hace ${((performance.now() - ultimoChunkRef.current) / 1000).toFixed(1)} s; problemas=${[...problemasRef.current].join(",") || "ninguno"}; tramos=${silenciosRef.current.length + 1}; cortes=${silenciosRef.current.map((s) => s.toFixed(1)).join("/") || "-"}`,
       );
       await volcarLog();
       limpiarRecursos();
 
       // Nadie puede tener abierto el .part cuando se renombra.
       await paralela?.suspender();
-      await rename(d.rutaParcial, d.rutaWebm);
+      await unirSegmentos(d);
       if (await exists(d.rutaMetaParcial)) await remove(d.rutaMetaParcial);
 
       const grabacion: Grabacion = {
@@ -966,6 +1195,7 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
         errorConversion: null,
         tags: [],
         marcas: marcasRef.current,
+        avisoAudio: mensajeReapertura(silenciosRef.current) ?? undefined,
         transcripcion: null,
         notaClase: "",
       };
@@ -1041,6 +1271,8 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
       setSegundosEnSilencio(null);
       setAvisoAudio(null);
       problemasRef.current = new Set();
+      silenciosRef.current = [];
+      deteniendoRef.current = false;
       logRef.current = [];
       acumuladoMsRef.current = 0;
       ponerFase("inactivo");
@@ -1052,6 +1284,7 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
     limpiarRecursos,
     ponerFase,
     registrar,
+    unirSegmentos,
     volcarLog,
   ]);
 

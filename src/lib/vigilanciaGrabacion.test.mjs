@@ -8,8 +8,10 @@ import {
   avisoDuracion,
   estaSinChunks,
   huecoEntreChunks,
+  argsUnirTramos,
   lineaLog,
   mensajeProblemaAudio,
+  mensajeReapertura,
 } from "./vigilanciaGrabacion.ts";
 import { crearControlSuspension } from "./suspension.ts";
 
@@ -53,5 +55,24 @@ fijar("transcripcion", false);
 assert.deepEqual(llamadas, [true, false]);
 fijar("transcripcion", false);
 assert.deepEqual(llamadas, [true, false], "soltar de más no repite la llamada");
+
+// Reapertura: sin cortes no hay aviso; con cortes cuenta veces y segundos.
+assert.equal(mensajeReapertura([]), null);
+assert.match(mensajeReapertura([12.4]), /1 vez.*12 s/);
+assert.match(mensajeReapertura([10, 20.6]), /2 veces.*31 s/);
+
+// Unión de tramos: un silencio por corte, en el orden correcto.
+const args = argsUnirTramos(
+  [
+    { ruta: "a.part", silencioAntesSeg: 0 },
+    { ruta: "b.part", silencioAntesSeg: 5 },
+  ],
+  "out.webm",
+);
+assert.equal(args.filter((x) => x === "-i").length, 3, "2 tramos + 1 silencio");
+assert.match(args[args.indexOf("-filter_complex") + 1], /\[n0\]\[n1\]\[n2\]concat=n=3:v=0:a=1\[o\]$/);
+assert.equal(args[args.indexOf("-i", args.indexOf("-t")) + 1], "anullsrc=r=48000:cl=mono");
+assert.equal(args.at(-1), "out.webm");
+assert.equal(argsUnirTramos([{ ruta: "a", silencioAntesSeg: 0 }], "o").filter((x) => x === "-i").length, 1);
 
 console.log("vigilanciaGrabacion: ok");

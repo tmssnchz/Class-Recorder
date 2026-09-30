@@ -39,15 +39,61 @@ export function mensajeProblemaAudio(
   segundosSinDatos = 0,
 ): string | null {
   if (problemas.has("ended")) {
-    return "El micrófono dejó de entregar audio (se desconectó o Windows lo cerró). Lo grabado hasta ahora está guardado, pero desde este momento NO se está grabando nada. Detén la grabación, revisa el micrófono y empieza otra.";
+    return "El micrófono dejó de entregar audio (se desconectó o Windows lo cerró). Lo grabado hasta ahora está guardado. Se está intentando reabrirlo solo; mientras tanto NO se graba nada. Si no vuelve, revisa el micrófono y detén la grabación.";
   }
   if (problemas.has("mute")) {
     return "Windows o el dispositivo silenció el micrófono: no está llegando sonido. La grabación sigue abierta, pero mientras esto dure no se graba nada.";
   }
   if (problemas.has("sin-datos")) {
-    return `Hace ${Math.round(segundosSinDatos)} s que no llega audio al archivo. Puede que el micrófono se haya desconectado. La grabación sigue abierta por si se recupera.`;
+    return `Hace ${Math.round(segundosSinDatos)} s que no llega audio al archivo. Puede que el micrófono se haya desconectado. Se está intentando reabrirlo solo.`;
   }
   return null;
+}
+
+/** Aviso cuando el micrófono ya se reabrió: cuánto audio faltó (quedó en silencio). */
+export function mensajeReapertura(silenciosSeg: readonly number[]): string | null {
+  if (silenciosSeg.length === 0) return null;
+  const total = silenciosSeg.reduce((a, b) => a + b, 0);
+  const veces = silenciosSeg.length === 1 ? "1 vez" : `${silenciosSeg.length} veces`;
+  return `El micrófono se cortó ${veces} y se reabrió solo. Faltan unos ${Math.round(total)} s de audio en total; esos tramos quedaron en silencio.`;
+}
+
+export interface TramoAudio {
+  ruta: string;
+  /** Silencio que se intercala antes de este tramo (lo que duró el corte). */
+  silencioAntesSeg: number;
+}
+
+/**
+ * Argumentos de ffmpeg para unir los segmentos de una grabación cortada en un
+ * solo WebM, rellenando cada corte con silencio para que el audio siga
+ * alineado con el cronómetro (y con las marcas). Recodifica a Opus: los
+ * segmentos de MediaRecorder traen marcas de tiempo propias y copiarlos sin
+ * más daría saltos.
+ */
+export function argsUnirTramos(tramos: readonly TramoAudio[], salida: string): string[] {
+  const entradas: string[] = [];
+  const nodos: string[] = [];
+  const filtros: string[] = [];
+  let i = 0;
+  for (const t of tramos) {
+    if (t.silencioAntesSeg > 0) {
+      entradas.push("-f", "lavfi", "-t", t.silencioAntesSeg.toFixed(3), "-i", "anullsrc=r=48000:cl=mono");
+      filtros.push(`[${i}:a]aformat=channel_layouts=mono[n${i}]`);
+      nodos.push(`[n${i}]`);
+      i++;
+    }
+    entradas.push("-i", t.ruta);
+    filtros.push(`[${i}:a]aresample=48000,aformat=channel_layouts=mono[n${i}]`);
+    nodos.push(`[n${i}]`);
+    i++;
+  }
+  filtros.push(`${nodos.join("")}concat=n=${nodos.length}:v=0:a=1[o]`);
+  return [
+    "-y", "-hide_banner", ...entradas,
+    "-filter_complex", filtros.join(";"),
+    "-map", "[o]", "-c:a", "libopus", "-b:a", "64k", "-f", "webm", salida,
+  ];
 }
 
 /**

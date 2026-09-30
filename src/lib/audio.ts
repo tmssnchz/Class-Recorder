@@ -10,6 +10,7 @@ import { Command } from "@tauri-apps/plugin-shell";
 
 import { unir } from "./paths.ts";
 import { parsearSilencios, type Silencio } from "./troceo.ts";
+import { argsUnirTramos, type TramoAudio } from "./vigilanciaGrabacion.ts";
 import type { FormatoAudio } from "../types.ts";
 
 const SIDECAR = "binaries/ffmpeg";
@@ -238,6 +239,11 @@ export async function concatenarArchivos(
   } finally {
     if (await exists(lista)) await remove(lista);
   }
+}
+
+/** Une los segmentos de una grabación cortada, con silencio en cada corte. */
+export function unirTramos(tramos: TramoAudio[], salida: string): Promise<void> {
+  return ejecutar(argsUnirTramos(tramos, salida));
 }
 
 export interface VentanaAudio {
