@@ -35,9 +35,11 @@ import {
   ErrorLimiteApi,
   ErrorTamanoApi,
   motorSinPreguntar,
+  opcionesApi,
   perfilPorId,
   perfilesUsables,
   transcribirConApi,
+  type ProgresoTrozos,
 } from "../lib/transcripcionApi";
 import type { Config, Grabacion } from "../types";
 import { useGrabador } from "./grabador";
@@ -51,6 +53,8 @@ export interface TareaTranscripcion {
   titulo: string;
   estado: EstadoTarea;
   porcentaje: number;
+  /** Progreso por trozo (solo transcripción por API). */
+  trozos?: ProgresoTrozos;
   error?: string;
 }
 
@@ -150,6 +154,7 @@ export function ProveedorTranscripciones({ children }: { children: ReactNode }) 
       grabacion: Grabacion,
       motor: MotorElegido,
       onEtapa: (etapa: Etapa) => void,
+      onProgreso: (progreso: ProgresoTrozos) => void,
     ): Promise<ResultadoTranscripcion> => {
       const config = configRef.current;
 
@@ -163,7 +168,14 @@ export function ProveedorTranscripciones({ children }: { children: ReactNode }) 
           throw new Error("El perfil de API elegido ya no existe. Vuelve a intentar.");
         }
         try {
-          return await transcribirConApi(grabacion, perfil, config.idiomaTranscripcion, grabacion.id, onEtapa);
+          return await transcribirConApi(
+            grabacion,
+            perfil,
+            config.idiomaTranscripcion,
+            grabacion.id,
+            onEtapa,
+            opcionesApi(config, grabacion, onProgreso),
+          );
         } catch (e) {
           // El audio comprimido no entró en el límite de tamaño de la API:
           // en vez de fallar la transcripción entera, se sigue en local.
@@ -178,7 +190,14 @@ export function ProveedorTranscripciones({ children }: { children: ReactNode }) 
       while (perfilRotacionRef.current < perfiles.length) {
         const perfil = perfiles[perfilRotacionRef.current];
         try {
-          return await transcribirConApi(grabacion, perfil, config.idiomaTranscripcion, grabacion.id, onEtapa);
+          return await transcribirConApi(
+            grabacion,
+            perfil,
+            config.idiomaTranscripcion,
+            grabacion.id,
+            onEtapa,
+            opcionesApi(config, grabacion, onProgreso),
+          );
         } catch (e) {
           if (e instanceof ErrorLimiteApi) {
             console.warn(`"${perfil.nombre}" llegó al límite de uso: sigue con el próximo perfil.`);
@@ -218,7 +237,13 @@ export function ProveedorTranscripciones({ children }: { children: ReactNode }) 
           const onEtapa = (etapa: Etapa) =>
             actualizarTarea(grabacion.id, { estado: etapa });
 
-          const { transcripcion } = await ejecutarTranscripcion(grabacion, motor, onEtapa);
+          const onProgreso = (trozos: ProgresoTrozos) =>
+            actualizarTarea(grabacion.id, {
+              trozos,
+              porcentaje: trozos.total ? Math.round((trozos.hechos / trozos.total) * 100) : 0,
+            });
+
+          const { transcripcion } = await ejecutarTranscripcion(grabacion, motor, onEtapa, onProgreso);
 
           await actualizarGrabacion(grabacion.id, { transcripcion });
           await escribirMetaGrabacion({ ...grabacion, transcripcion });

@@ -9,6 +9,7 @@ import { exists, remove, writeTextFile } from "@tauri-apps/plugin-fs";
 import { Command } from "@tauri-apps/plugin-shell";
 
 import { unir } from "./paths.ts";
+import { parsearSilencios, type Silencio } from "./troceo.ts";
 import type { FormatoAudio } from "../types.ts";
 
 const SIDECAR = "binaries/ffmpeg";
@@ -286,6 +287,41 @@ export function extraerAudioParaApi(
     ],
     opciones,
   );
+}
+
+/**
+ * Silencios de un audio según `silencedetect` de ffmpeg (los usa el troceo
+ * para elegir dónde cortar y qué trozos no vale la pena mandar). Devuelve []
+ * si ffmpeg falla: sin silencios el troceo corta duro y no omite nada.
+ *
+ * -35 dB y 0,7 s es un punto de partida para voz en aula; un aula ruidosa
+ * puede no bajar de ese umbral nunca y quedar sin silencios detectados.
+ */
+export function detectarSilencios(entrada: string, duracionSeg: number): Promise<Silencio[]> {
+  return new Promise((resolver) => {
+    const cmd = Command.sidecar(SIDECAR, [
+      "-hide_banner",
+      "-i",
+      entrada,
+      "-vn",
+      "-ac",
+      "1",
+      "-ar",
+      "16000",
+      "-af",
+      "silencedetect=noise=-35dB:d=0.7",
+      "-f",
+      "null",
+      "-",
+    ]);
+    let stderr = "";
+    cmd.stderr.on("data", (linea) => {
+      stderr += linea + "\n";
+    });
+    cmd.on("close", ({ code }) => resolver(code === 0 ? parsearSilencios(stderr, duracionSeg) : []));
+    cmd.on("error", () => resolver([]));
+    cmd.spawn().catch(() => resolver([]));
+  });
 }
 
 /** Un segundo de silencio, para el botón "Probar conexión" de la API. */

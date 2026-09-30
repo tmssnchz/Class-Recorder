@@ -84,6 +84,13 @@ export function VistaTranscripcion({
             <span>
               {ETIQUETA_ETAPA[tarea.estado] ?? tarea.estado}
               {tarea.estado === "transcribiendo" ? ` — ${tarea.porcentaje}%` : "…"}
+              {tarea.trozos && tarea.estado === "transcribiendo" && (
+                <small className="sutil">
+                  {" "}
+                  · trozo {tarea.trozos.hechos} de {tarea.trozos.total}
+                  {tarea.trozos.fallidos > 0 && ` (${tarea.trozos.fallidos} con error)`}
+                </small>
+              )}
             </span>
             <button
               className="btn btn-mini"
@@ -172,6 +179,12 @@ export function VistaTranscripcion({
           {formatearDuracion(transcripcion.duracionProcesoSeg)}
         </small>
       </div>
+      {transcripcion.aviso && (
+        <div className="aviso">
+          <Icono nombre="alerta" />
+          <span>{transcripcion.aviso}</span>
+        </div>
+      )}
 
       <div className="acciones-transcripcion">
         <button className="btn btn-mini" onClick={() => void copiar()}>

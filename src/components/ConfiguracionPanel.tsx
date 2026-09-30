@@ -42,6 +42,7 @@ import {
   carpetaModelosFaster,
   carpetaWhisper,
   estimarSegundos,
+  modeloDePerfil,
   revisarInstalacion,
   rutaModelo,
   urlArchivoFaster,
@@ -1617,7 +1618,8 @@ function SeccionApiTranscripcion() {
 
   const [agregando, setAgregando] = useState(false);
   const [nombreInput, setNombreInput] = useState("");
-  const [proveedorInput, setProveedorInput] = useState<ProveedorApi>("groq");
+  const [proveedorInput, setProveedorInput] = useState<ProveedorApi>("openrouter");
+  const [modeloInput, setModeloInput] = useState("");
   const [urlInput, setUrlInput] = useState("");
   const [claveInput, setClaveInput] = useState("");
   const [mostrarClave, setMostrarClave] = useState(false);
@@ -1634,7 +1636,8 @@ function SeccionApiTranscripcion() {
     setNombreInput("");
     setUrlInput("");
     setClaveInput("");
-    setProveedorInput("groq");
+    setProveedorInput("openrouter");
+    setModeloInput("");
     setErrorForm(null);
   };
 
@@ -1649,6 +1652,7 @@ function SeccionApiTranscripcion() {
         nombre: nombreInput.trim(),
         proveedor: proveedorInput,
         urlPersonalizada: urlInput.trim(),
+        modelo: modeloInput.trim() || undefined,
         claveCifrada,
       };
       await actualizarConfig({ apiTranscripcion: { perfiles: [...api.perfiles, nuevo] } });
@@ -1687,9 +1691,9 @@ function SeccionApiTranscripcion() {
     <div className="tarjeta">
       <h3 className="titulo-seccion">Transcripción por API</h3>
       <p className="sutil" style={{ marginBottom: 14 }}>
-        Transcribe con tu propia clave de Groq, OpenAI o cualquier endpoint
+        Transcribe con tu propia clave de OpenRouter, OpenAI o cualquier endpoint
         compatible, en vez del motor local. Se pueden guardar varios perfiles
-        (por ejemplo, dos claves de Groq distintas) y elegir entre ellos al
+        (por ejemplo, dos claves de OpenRouter distintas) y elegir entre ellos al
         transcribir. Nada de esto se activa si no se configura acá: por
         defecto la app sigue transcribiendo local.
       </p>
@@ -1757,12 +1761,27 @@ function SeccionApiTranscripcion() {
             </select>
           </div>
 
+          <div className="ajuste">
+            <div className="ajuste-texto">
+              <strong>Contexto para la transcripción</strong>
+              <small className="sutil">
+                Vocabulario o materia (ej. «derecho civil chileno, compraventa, tradición»).
+                Todavía no tiene efecto con OpenRouter: su API ignora este campo.
+              </small>
+            </div>
+            <input
+              type="text"
+              defaultValue={api.promptContexto}
+              onBlur={(e) => void actualizarConfig({ apiTranscripcion: { promptContexto: e.target.value } })}
+            />
+          </div>
+
           {api.perfiles.length > 0 && (
             <table className="tabla-modelos">
               <thead>
                 <tr>
                   <th>Nombre</th>
-                  <th>Proveedor</th>
+                  <th>Proveedor · modelo</th>
                   <th>Clave</th>
                   <th></th>
                 </tr>
@@ -1783,7 +1802,10 @@ function SeccionApiTranscripcion() {
                           <small className="sutil"> · {resultadoPrueba.texto}</small>
                         ))}
                     </td>
-                    <td>{buscarProveedorApi(p.proveedor).nombre}</td>
+                    <td>
+                      {buscarProveedorApi(p.proveedor).nombre}
+                      <small className="sutil"> · {modeloDePerfil(p)}</small>
+                    </td>
                     <td>
                       {p.claveCifrada ? (
                         <span className="chip">guardada</span>
@@ -1822,7 +1844,7 @@ function SeccionApiTranscripcion() {
                 </div>
                 <input
                   type="text"
-                  placeholder="ej. Groq personal"
+                  placeholder="ej. OpenRouter personal"
                   value={nombreInput}
                   onChange={(e) => setNombreInput(e.target.value)}
                 />
@@ -1836,12 +1858,27 @@ function SeccionApiTranscripcion() {
                   value={proveedorInput}
                   onChange={(e) => setProveedorInput(e.target.value as ProveedorApi)}
                 >
-                  {PROVEEDORES_API.map((p) => (
+                  {PROVEEDORES_API.filter((p) => !p.deshabilitado).map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.nombre}
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="ajuste">
+                <div className="ajuste-texto">
+                  <strong>Modelo</strong>
+                  <small className="sutil">
+                    Vacío usa el del proveedor ({buscarProveedorApi(proveedorInput).modelo}).
+                  </small>
+                </div>
+                <input
+                  type="text"
+                  placeholder={buscarProveedorApi(proveedorInput).modelo}
+                  value={modeloInput}
+                  onChange={(e) => setModeloInput(e.target.value)}
+                />
               </div>
 
               {proveedorInput === "personalizado" && (

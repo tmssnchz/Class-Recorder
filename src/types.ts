@@ -5,7 +5,7 @@ export type FormatoAudio = "mp3" | "wav";
 export type MotorTranscripcion = "whisper.cpp" | "faster-whisper" | "api";
 
 /** Proveedores de transcripción por API compatibles con el formato OpenAI. */
-export type ProveedorApi = "groq" | "openai" | "personalizado";
+export type ProveedorApi = "openrouter" | "groq" | "openai" | "personalizado";
 
 /**
  * Modelos GGML disponibles. Los que terminan en q5_0/q5_1 están cuantizados:
@@ -77,6 +77,8 @@ export interface Transcripcion {
   palabras: number;
   /** Cuánto tardó en transcribirse, para poder estimar las próximas. */
   duracionProcesoSeg: number;
+  /** Algo que el usuario debería saber de esta transcripción (ej. tiempos aproximados). */
+  aviso?: string;
 }
 
 /**
@@ -420,6 +422,8 @@ export interface PerfilApi {
   proveedor: ProveedorApi;
   /** Solo se usa cuando proveedor === "personalizado". */
   urlPersonalizada: string;
+  /** Modelo a pedir. Vacío o ausente = el predeterminado del proveedor. */
+  modelo?: string;
   /**
    * Clave cifrada con DPAPI (ligada al usuario de Windows), en hexadecimal.
    * Nunca se guarda ni se transmite en texto plano. null = no configurada.
@@ -441,6 +445,11 @@ export interface ConfigApiTranscripcion {
   habilitada: boolean;
   perfiles: PerfilApi[];
   predeterminado: MotorPredeterminado;
+  /**
+   * Contexto para orientar a Whisper (vocabulario, materia). OJO: OpenRouter
+   * hoy ignora `prompt`, así que con ese proveedor no tiene efecto todavía.
+   */
+  promptContexto: string;
 }
 
 export const VERSION_BD = 1;
@@ -486,6 +495,7 @@ export const CONFIG_POR_DEFECTO: Config = {
     habilitada: false,
     perfiles: [],
     predeterminado: { tipo: "local" },
+    promptContexto: "",
   },
   apuntes: {
     motor: "glm-ocr",

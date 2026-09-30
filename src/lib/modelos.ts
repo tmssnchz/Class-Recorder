@@ -226,14 +226,27 @@ export interface ProveedorApiInfo {
   url: string | null;
   /** Modelo que pide el endpoint compatible OpenAI `audio/transcriptions`. */
   modelo: string;
+  /**
+   * Sigue en el código pero no se ofrece al crear perfiles, y Rust rechaza la
+   * llamada. Para reactivarlo: quitar esto y poner `GROQ_HABILITADO` en
+   * `src-tauri/src/proveedores.rs`.
+   */
+  deshabilitado?: boolean;
 }
 
 export const PROVEEDORES_API: ProveedorApiInfo[] = [
   {
+    id: "openrouter",
+    nombre: "OpenRouter",
+    url: "https://openrouter.ai/api/v1/audio/transcriptions",
+    modelo: "openai/whisper-large-v3-turbo",
+  },
+  {
     id: "groq",
-    nombre: "Groq",
+    nombre: "Groq (deshabilitado)",
     url: "https://api.groq.com/openai/v1/audio/transcriptions",
     modelo: "whisper-large-v3-turbo",
+    deshabilitado: true,
   },
   {
     id: "openai",
@@ -251,6 +264,11 @@ export const PROVEEDORES_API: ProveedorApiInfo[] = [
 
 export function buscarProveedorApi(id: ProveedorApi): ProveedorApiInfo {
   return PROVEEDORES_API.find((p) => p.id === id) ?? PROVEEDORES_API[0];
+}
+
+/** Modelo efectivo de un perfil: el que eligió el usuario o el del proveedor. */
+export function modeloDePerfil(perfil: { proveedor: ProveedorApi; modelo?: string }): string {
+  return perfil.modelo?.trim() || buscarProveedorApi(perfil.proveedor).modelo;
 }
 
 /** URL efectiva del endpoint de un perfil de API guardado. */

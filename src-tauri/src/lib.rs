@@ -8,6 +8,7 @@ mod htr;
 mod imagen_windows;
 mod marcadores;
 mod importar;
+mod proveedores;
 mod respaldo;
 mod transcripcion;
 mod transcripcion_api;
@@ -215,6 +216,7 @@ pub fn run() {
             transcripcion::hilos_recomendados,
             transcripcion_api::cifrar_clave_api,
             transcripcion_api::transcribir_api,
+            proveedores::transcribir_trozo,
             transcripcion_api::reconocer_apunte_api,
         ])
         .run(tauri::generate_context!())

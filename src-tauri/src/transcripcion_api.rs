@@ -88,6 +88,12 @@ fn descifrar_dpapi(cifrado: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
+/// Clave en claro a partir de la guardada en `config.json` (hex + DPAPI).
+pub(crate) fn clave_de(clave_cifrada: &str) -> Result<String, String> {
+    let bytes = descifrar_dpapi(&de_hex(clave_cifrada)?)?;
+    String::from_utf8(bytes).map_err(|_| "clave cifrada corrupta".to_string())
+}
+
 /// Cifra la clave que el usuario tipeó en Configuración. Lo que vuelve (hex)
 /// es lo único que se guarda en `config.json`.
 #[tauri::command]
