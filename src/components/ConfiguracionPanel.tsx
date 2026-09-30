@@ -22,6 +22,9 @@ import {
   type InfoDrive,
 } from "../lib/importar";
 import { nuevoId, useStore } from "../estado/store";
+import { duracionDe } from "../lib/audio";
+import { escribirMetaGrabacion } from "../lib/grabaciones";
+import { correccionDuracion } from "../lib/vigilanciaGrabacion";
 
 /** Igual que el del backend: la subcarpeta que la app crea dentro del Drive. */
 const NOMBRE_INBOX = "ClassRecorder_Inbox";
@@ -1086,7 +1089,10 @@ export function ConfiguracionPanel() {
       )}
 
       {grupo === "transcripcion" && (
-      <SeccionApiTranscripcion />
+      <>
+        <SeccionApiTranscripcion />
+        <SeccionVerificarDuraciones />
+      </>
       )}
 
       {grupo === "apuntes" && (
@@ -1612,6 +1618,72 @@ function ModalMigracion({
  * Rust, que la cifra con DPAPI y devuelve solo el cifrado a guardar en
  * config.json.
  */
+/**
+ * Las grabaciones hechas antes de detectar cortes del micrófono guardaron la
+ * duración del cronómetro, no la del audio. Esto mide cada archivo y corrige
+ * las que difieren bastante, con un aviso. Se puede repetir sin efecto.
+ */
+function SeccionVerificarDuraciones() {
+  const { datos, actualizarGrabacion } = useStore();
+  const [avance, setAvance] = useState<{ hecho: number; total: number } | null>(null);
+  const [resultado, setResultado] = useState<string | null>(null);
+
+  const verificar = async () => {
+    const lista = datos.grabaciones.filter((g) => g.estado === "listo");
+    setResultado(null);
+    let corregidas = 0;
+    let sinMedir = 0;
+    for (let i = 0; i < lista.length; i++) {
+      setAvance({ hecho: i, total: lista.length });
+      const g = lista[i];
+      try {
+        const real = await duracionDe(g.archivoAudio);
+        if (!(real > 0)) {
+          sinMedir++;
+          continue;
+        }
+        const c = correccionDuracion(
+          g.duracionSeg,
+          real,
+          g.marcas.map((m) => m.segundo),
+        );
+        if (!c) continue;
+        await actualizarGrabacion(g.id, c);
+        await escribirMetaGrabacion({ ...g, ...c });
+        corregidas++;
+      } catch {
+        sinMedir++;
+      }
+    }
+    setAvance(null);
+    setResultado(
+      `${lista.length} revisadas: ${corregidas} corregidas` +
+        (sinMedir > 0 ? `, ${sinMedir} sin poder medirse (archivo ausente o en la nube).` : "."),
+    );
+  };
+
+  return (
+    <div className="tarjeta">
+      <h3 className="titulo-seccion">Verificar duraciones</h3>
+      <p className="sutil" style={{ marginBottom: 14 }}>
+        Si el micrófono se cortó en una clase, el cronómetro siguió contando pero
+        el audio quedó más corto. Este botón mide el audio real de cada
+        grabación, corrige la duración de las que difieren en más de 30 s y les
+        pone un aviso. El audio que falta no se puede recuperar.
+      </p>
+      {resultado && (
+        <div className="aviso aviso-ok">
+          <Icono nombre="check" />
+          <span>{resultado}</span>
+        </div>
+      )}
+      <button className="btn" onClick={() => void verificar()} disabled={avance !== null}>
+        {avance ? `Revisando ${avance.hecho + 1} de ${avance.total}…` : "Verificar duraciones"}
+      </button>
+    </div>
+  );
+}
+
 function SeccionApiTranscripcion() {
   const { config, actualizarConfig } = useStore();
   const api = config.apiTranscripcion;

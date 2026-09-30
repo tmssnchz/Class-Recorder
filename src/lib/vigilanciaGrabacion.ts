@@ -114,6 +114,27 @@ export function avisoDuracion(
     : `El cronómetro marcó ${reg}, pero el audio guardado dura ${real}.`;
 }
 
+/**
+ * Corrección de una grabación ya guardada: si el audio real difiere más del
+ * umbral de lo registrado, devuelve la duración real y el aviso (con cuántas
+ * marcas quedaron fuera del audio). null = no hay nada que corregir; por eso
+ * repetirla no cambia nada.
+ */
+export function correccionDuracion(
+  registradaSeg: number,
+  realSeg: number,
+  marcasSeg: readonly number[],
+): { duracionSeg: number; avisoAudio: string } | null {
+  const aviso = avisoDuracion(registradaSeg, realSeg);
+  if (!aviso) return null;
+  const fuera = marcasSeg.filter((s) => s > realSeg).length;
+  const extra =
+    fuera > 0
+      ? ` ${fuera === 1 ? "1 marca queda" : `${fuera} marcas quedan`} fuera del audio.`
+      : "";
+  return { duracionSeg: realSeg, avisoAudio: aviso + extra };
+}
+
 /** Una línea del log de diagnóstico: tiempo de reloj y de cronómetro + evento. */
 export function lineaLog(
   relojSeg: number,

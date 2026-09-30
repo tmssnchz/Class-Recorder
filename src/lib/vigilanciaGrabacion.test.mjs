@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 
 import {
   avisoDuracion,
+  correccionDuracion,
   estaSinChunks,
   huecoEntreChunks,
   argsUnirTramos,
@@ -55,6 +56,15 @@ fijar("transcripcion", false);
 assert.deepEqual(llamadas, [true, false]);
 fijar("transcripcion", false);
 assert.deepEqual(llamadas, [true, false], "soltar de más no repite la llamada");
+
+// Corrección de grabaciones viejas: corrige una vez y luego queda estable.
+const corr = correccionDuracion(9360, 53, [10, 30, 600]);
+assert.equal(corr.duracionSeg, 53);
+assert.match(corr.avisoAudio, /dura solo 00:53.*1 marca queda fuera/);
+assert.match(correccionDuracion(9360, 53, [10, 600, 700]).avisoAudio, /2 marcas quedan fuera/);
+assert.equal(correccionDuracion(53, 53, [600]), null, "ya corregida: no hace nada");
+assert.equal(correccionDuracion(3600, 3590, []), null);
+assert.equal(correccionDuracion(3600, 0, []), null);
 
 // Reapertura: sin cortes no hay aviso; con cortes cuenta veces y segundos.
 assert.equal(mensajeReapertura([]), null);
