@@ -335,6 +335,15 @@ export function GrabarPanel() {
           <Medidor leer={g.nivelActual} activo={grabando} />
         </div>
 
+        {g.avisoAudio && (
+          <div className="aviso aviso-error" role="alert">
+            <Icono nombre="alerta" />
+            <span>
+              <strong>Atención:</strong> {g.avisoAudio}
+            </span>
+          </div>
+        )}
+
         {g.segundosEnSilencio !== null && (
           <div className="aviso aviso-info aviso-silencio">
             <Icono nombre="alerta" />

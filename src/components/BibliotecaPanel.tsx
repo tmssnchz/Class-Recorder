@@ -657,6 +657,11 @@ function FilaGrabacion({
             : ""}
           {grabacion.transcripcion ? " · transcrita" : ""}
         </small>
+        {grabacion.avisoAudio && (
+          <small className="sutil" title={grabacion.avisoAudio}>
+            <Icono nombre="alerta" tamano={12} /> Audio más corto de lo grabado
+          </small>
+        )}
       </div>
       {enNube && (
         <span className="chip" title="Solo en la nube: se descarga al reproducir">

@@ -112,6 +112,12 @@ export interface Grabacion {
   transcripcion: Transcripcion | null;
   /** Qué se conversó en la clase, escrita al detener o después desde el detalle. */
   notaClase: string;
+  /**
+   * Algo que el usuario debería saber del audio: lo que dura el archivo real
+   * difiere bastante de lo que marcó el cronómetro (el micrófono dejó de
+   * entregar sonido a mitad de la grabación).
+   */
+  avisoAudio?: string;
 }
 
 /** Extensiones que se aceptan como material de estudio. */

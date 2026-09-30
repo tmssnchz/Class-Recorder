@@ -18,10 +18,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { exists, remove, rename, writeFile } from "@tauri-apps/plugin-fs";
+import { exists, remove, rename, writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-import { convertirAudio } from "../lib/audio";
+import { convertirAudio, duracionDe } from "../lib/audio";
 import {
   buscarInterrumpidas,
   consultarEspacio,
@@ -37,6 +37,16 @@ import {
   type MetaParcial,
 } from "../lib/grabaciones";
 import { unir } from "../lib/paths";
+import { fijarSuspension } from "../lib/suspensionSistema";
+import {
+  LIMITE_SIN_CHUNKS_MS,
+  avisoDuracion,
+  estaSinChunks,
+  huecoEntreChunks,
+  lineaLog,
+  mensajeProblemaAudio,
+  type ProblemaAudio,
+} from "../lib/vigilanciaGrabacion";
 import type { ResultadoTranscripcion } from "../lib/transcripcion";
 import {
   iniciarTranscripcionParalela,
@@ -63,6 +73,21 @@ const NIVEL_SILENCIO = 0.015;
 /** Cada cuánto se refresca la metadata parcial en disco. */
 const META_CADA_MS = 15000;
 const BYTES_POR_GB = 1024 ** 3;
+
+/** Resumen sin nombres de dispositivo: cuántas entradas hay y si la en uso sigue. */
+async function describirEntradas(pista?: MediaStreamTrack): Promise<string> {
+  try {
+    const todos = await navigator.mediaDevices.enumerateDevices();
+    const entradas = todos.filter((d) => d.kind === "audioinput");
+    const id = pista?.getSettings().deviceId;
+    const presente = id ? entradas.some((d) => d.deviceId === id) : null;
+    const estado =
+      presente === null ? "?" : presente ? "sigue en la lista" : "YA NO ESTÁ en la lista";
+    return `entradas de audio=${entradas.length}, la en uso ${estado}`;
+  } catch {
+    return "no se pudieron listar los dispositivos";
+  }
+}
 
 export type FaseGrabacion = "inactivo" | "grabando" | "pausado" | "finalizando";
 
@@ -106,6 +131,12 @@ interface Grabador {
   moviendoDestino: boolean;
   /** Segundos que lleva sin detectarse sonido, o null si se está captando. */
   segundosEnSilencio: number | null;
+  /**
+   * Aviso grave y visible: el micrófono dejó de entregar audio (pista
+   * terminada o silenciada, o sin fragmentos de MediaRecorder). No detiene la
+   * grabación. null si todo va bien.
+   */
+  avisoAudio: string | null;
   /**
    * Avance de la transcripción que corre junto a la grabación, o null si está
    * apagada en Configuración. Sigue vivo un rato después de detener: la cola
@@ -169,6 +200,7 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
   });
   const [moviendo, setMoviendo] = useState(false);
   const [segundosEnSilencio, setSegundosEnSilencio] = useState<number | null>(null);
+  const [avisoAudio, setAvisoAudio] = useState<string | null>(null);
   const [paralela, setParalela] = useState<EstadoParalela | null>(null);
   const [pendienteTranscripcion, setPendienteTranscripcion] =
     useState<Grabacion | null>(null);
@@ -203,6 +235,16 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
   const ultimaMetaRef = useRef(0);
   const configRef = useRef(config);
   const datosRef = useRef(datos);
+  // Vigilancia del micrófono y log de diagnóstico de la grabación en curso.
+  const ultimoChunkRef = useRef(0);
+  const chunksRef = useRef(0);
+  const vaciosRef = useRef(0);
+  const ultimoTickRef = useRef(0);
+  const inicioRelojRef = useRef(0);
+  const problemasRef = useRef(new Set<ProblemaAudio>());
+  const logRef = useRef<string[]>([]);
+  const logColaRef = useRef<Promise<void>>(Promise.resolve());
+  const quitarEscuchasRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     configRef.current = config;
@@ -225,6 +267,52 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
       faseRef.current === "grabando" ? performance.now() - inicioTramoRef.current : 0;
     return acumuladoMsRef.current + enCurso;
   }, []);
+
+  const rutaLog = (d: Destino) => unir(d.carpeta, `${d.base}.log.txt`);
+
+  /** Reescribe el log entero junto al audio: pocos eventos, y así nunca queda a medias. */
+  const volcarLog = useCallback((): Promise<void> => {
+    const d = destinoRef.current;
+    if (!d) return logColaRef.current;
+    const ruta = rutaLog(d);
+    const texto = `${logRef.current.join("\n")}\n`;
+    logColaRef.current = logColaRef.current
+      .then(() => writeTextFile(ruta, texto))
+      .catch((e) => console.warn("No se pudo escribir el log de la grabación", e));
+    return logColaRef.current;
+  }, []);
+
+  const registrar = useCallback(
+    (evento: string, detalle?: string) => {
+      logRef.current.push(
+        lineaLog(
+          (performance.now() - inicioRelojRef.current) / 1000,
+          transcurridoMs() / 1000,
+          evento,
+          detalle,
+        ),
+      );
+      void volcarLog();
+    },
+    [transcurridoMs, volcarLog],
+  );
+
+  const refrescarAviso = useCallback(() => {
+    setAvisoAudio(
+      mensajeProblemaAudio(
+        problemasRef.current,
+        (performance.now() - ultimoChunkRef.current) / 1000,
+      ),
+    );
+  }, []);
+
+  // Que el equipo no se suspenda mientras se graba (ni en pausa: ahí no hace
+  // falta). El control compartido no la suelta si la cola de transcripciones
+  // todavía la necesita.
+  useEffect(() => {
+    fijarSuspension("grabacion", fase === "grabando");
+  }, [fase]);
+  useEffect(() => () => fijarSuspension("grabacion", false), []);
 
   /**
    * Mueve los archivos temporales a la carpeta de la nueva clase/unidad
@@ -253,6 +341,7 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
         if (mismoDestino) return;
 
         const cfg = configRef.current;
+        const logViejo = rutaLog(d);
         setMoviendo(true);
         try {
           // Igual que con las escrituras: si ffmpeg está leyendo el .part para
@@ -270,6 +359,17 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
           destinoRef.current = nuevo;
           rutaEscrituraRef.current = nuevo.rutaParcial;
           setDestino(nuevo);
+
+          // El log se reescribe entero en la carpeta nueva; el viejo sobra.
+          await logColaRef.current;
+          try {
+            if (logViejo !== rutaLog(nuevo) && (await exists(logViejo))) {
+              await remove(logViejo);
+            }
+          } catch {
+            // Es solo diagnóstico: si no se borra, queda un duplicado inofensivo.
+          }
+          registrar("clase/unidad reasignada");
 
           meta.claseId = claseId;
           meta.unidadId = unidadId;
@@ -293,7 +393,7 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
         }
       });
     },
-    [transcurridoMs],
+    [registrar, transcurridoMs],
   );
 
   const elegirClase = useCallback(
@@ -344,12 +444,17 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
         if (bytes > 0 && (await exists(grabacion.archivoAudio))) {
           await remove(grabacion.archivoAudio);
         }
+        // El cronómetro no sabe si el micrófono siguió entregando sonido: la
+        // duración del MP3 sí es la verdad.
+        const real = await duracionDe(salida).catch(() => 0);
         const cambios = {
           archivoAudio: salida,
           formato,
           bytes,
           estado: "listo" as const,
           errorConversion: null,
+          ...(real > 0 ? { duracionSeg: real } : {}),
+          avisoAudio: avisoDuracion(grabacion.duracionSeg, real) ?? undefined,
         };
         await actualizarGrabacion(grabacion.id, cambios);
         await escribirMetaGrabacion({ ...grabacion, ...cambios });
@@ -410,6 +515,8 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
   // -------------------------------------------------------------- utilidades
 
   const limpiarRecursos = useCallback(() => {
+    quitarEscuchasRef.current?.();
+    quitarEscuchasRef.current = null;
     if (intervaloRef.current !== null) {
       window.clearInterval(intervaloRef.current);
       intervaloRef.current = null;
@@ -549,7 +656,21 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
           audioBitsPerSecond: 64000,
         });
         rec.ondataavailable = (evento) => {
-          if (!evento.data || evento.data.size === 0) return;
+          if (!evento.data || evento.data.size === 0) {
+            vaciosRef.current++;
+            return;
+          }
+          const ahora = performance.now();
+          const hueco = huecoEntreChunks(ahora, ultimoChunkRef.current);
+          ultimoChunkRef.current = ahora;
+          chunksRef.current++;
+          if (hueco !== null) {
+            registrar("hueco entre fragmentos", `${hueco.toFixed(1)} s sin datos`);
+          }
+          if (problemasRef.current.delete("sin-datos")) {
+            registrar("fragmentos reanudados");
+            refrescarAviso();
+          }
           const blob = evento.data;
           colaRef.current = colaRef.current
             .then(async () => {
@@ -571,6 +692,7 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
             });
         };
         rec.onerror = (evento) => {
+          registrar("error del grabador", String((evento as ErrorEvent).error));
           setError(`Error del grabador: ${String((evento as ErrorEvent).error)}`);
         };
         recorderRef.current = rec;
@@ -583,8 +705,63 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
         inicioTramoRef.current = performance.now();
         ultimaMetaRef.current = performance.now();
 
+        // Vigilancia y log de diagnóstico: solo observan, nunca tocan la grabación.
+        inicioRelojRef.current = performance.now();
+        ultimoChunkRef.current = performance.now();
+        ultimoTickRef.current = performance.now();
+        chunksRef.current = 0;
+        vaciosRef.current = 0;
+        problemasRef.current = new Set();
+        logRef.current = [];
+        setAvisoAudio(null);
+
+        const pista = stream.getAudioTracks()[0];
+        const estadoPista = () =>
+          pista
+            ? `readyState=${pista.readyState}, muted=${pista.muted}, enabled=${pista.enabled}`
+            : "sin pista de audio";
+        const quitar: (() => void)[] = [];
+        const escuchar = (obj: EventTarget, tipo: string, fn: () => void) => {
+          obj.addEventListener(tipo, fn);
+          quitar.push(() => obj.removeEventListener(tipo, fn));
+        };
+        const marcarProblema = (p: ProblemaAudio, activo: boolean) => {
+          if (activo) problemasRef.current.add(p);
+          else problemasRef.current.delete(p);
+          refrescarAviso();
+        };
+        if (pista) {
+          escuchar(pista, "ended", () => {
+            registrar("pista ended", estadoPista());
+            marcarProblema("ended", true);
+          });
+          escuchar(pista, "mute", () => {
+            registrar("pista mute", estadoPista());
+            marcarProblema("mute", true);
+          });
+          escuchar(pista, "unmute", () => {
+            registrar("pista unmute", estadoPista());
+            marcarProblema("mute", false);
+          });
+        }
+        escuchar(navigator.mediaDevices, "devicechange", () => {
+          void describirEntradas(pista).then((r) => registrar("cambio de dispositivos", r));
+        });
+        escuchar(document, "visibilitychange", () =>
+          registrar("visibilidad de la ventana", document.visibilityState),
+        );
+        escuchar(rec, "stop", () => registrar("MediaRecorder stop", `estado=${rec.state}`));
+        escuchar(ctx, "statechange", () => registrar("AudioContext", ctx.state));
+        quitarEscuchasRef.current = () => quitar.forEach((f) => f());
+
         rec.start(TROZO_MS);
         ponerFase("grabando");
+        void describirEntradas(pista).then((r) =>
+          registrar(
+            "inicio",
+            `${mimeType}; ${estadoPista()}; ${r}; ventana=${document.visibilityState}; empezó ${new Date().toISOString()}`,
+          ),
+        );
         setSegundos(0);
         ultimoSonidoRef.current = performance.now();
         setSegundosEnSilencio(null);
@@ -619,6 +796,30 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
         intervaloRef.current = window.setInterval(() => {
           setSegundos(transcurridoMs() / 1000);
           setBytesEscritos(bytesRef.current);
+
+          // Si el reloj de la app se queda sin avanzar (equipo suspendido,
+          // ahorro de energía, ventana en segundo plano) se ve en el log.
+          const ahora = performance.now();
+          const salto = ahora - ultimoTickRef.current;
+          ultimoTickRef.current = ahora;
+          if (salto > 3000) {
+            registrar("reloj de la app detenido", `${(salto / 1000).toFixed(1)} s sin actividad`);
+          }
+
+          // Sin fragmentos de MediaRecorder = el micrófono no está entregando.
+          if (
+            faseRef.current === "grabando" &&
+            estaSinChunks(ahora, ultimoChunkRef.current)
+          ) {
+            if (!problemasRef.current.has("sin-datos")) {
+              problemasRef.current.add("sin-datos");
+              registrar(
+                "sin fragmentos",
+                `más de ${LIMITE_SIN_CHUNKS_MS / 1000} s sin datos; ${estadoPista()}`,
+              );
+            }
+            refrescarAviso();
+          }
 
           // Vigilancia del micrófono: mide el nivel en cada tick y lleva la
           // cuenta de cuánto hace que no entra sonido. Solo informa; cortar la
@@ -660,6 +861,8 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
       limpiarRecursos,
       nivelActual,
       ponerFase,
+      refrescarAviso,
+      registrar,
       transcurridoMs,
     ],
   );
@@ -672,16 +875,20 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
     rec.pause();
     acumuladoMsRef.current += performance.now() - inicioTramoRef.current;
     ponerFase("pausado");
+    registrar("pausa");
     void guardarMetaParcial();
-  }, [guardarMetaParcial, ponerFase]);
+  }, [guardarMetaParcial, ponerFase, registrar]);
 
   const reanudar = useCallback(() => {
     const rec = recorderRef.current;
     if (!rec || faseRef.current !== "pausado") return;
     inicioTramoRef.current = performance.now();
+    // Durante la pausa no llegan fragmentos: el vigilante parte de cero.
+    ultimoChunkRef.current = performance.now();
     rec.resume();
     ponerFase("grabando");
-  }, [ponerFase]);
+    registrar("reanudación");
+  }, [ponerFase, registrar]);
 
   const alternarPausa = useCallback(() => {
     if (faseRef.current === "grabando") pausar();
@@ -730,6 +937,11 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
         }
       });
       await colaRef.current;
+      registrar(
+        "cierre",
+        `cronómetro=${duracionSeg.toFixed(1)} s; fragmentos=${chunksRef.current} (~${chunksRef.current * (TROZO_MS / 1000)} s de audio), vacíos=${vaciosRef.current}; bytes=${bytesRef.current}; último fragmento hace ${((performance.now() - ultimoChunkRef.current) / 1000).toFixed(1)} s; problemas=${[...problemasRef.current].join(",") || "ninguno"}`,
+      );
+      await volcarLog();
       limpiarRecursos();
 
       // Nadie puede tener abierto el .part cuando se renombra.
@@ -827,6 +1039,9 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
       setSegundos(0);
       setBytesEscritos(0);
       setSegundosEnSilencio(null);
+      setAvisoAudio(null);
+      problemasRef.current = new Set();
+      logRef.current = [];
       acumuladoMsRef.current = 0;
       ponerFase("inactivo");
     }
@@ -836,6 +1051,8 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
     convertir,
     limpiarRecursos,
     ponerFase,
+    registrar,
+    volcarLog,
   ]);
 
   // ------------------------------------------------------------------ marcas
@@ -978,6 +1195,7 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
       seleccion,
       moviendoDestino: moviendo,
       segundosEnSilencio,
+      avisoAudio,
       paralela,
       pendienteTranscripcion,
       consumirPendienteTranscripcion,
@@ -1014,6 +1232,7 @@ export function ProveedorGrabador({ children }: { children: ReactNode }) {
       seleccion,
       moviendo,
       segundosEnSilencio,
+      avisoAudio,
       paralela,
       pendienteTranscripcion,
       consumirPendienteTranscripcion,

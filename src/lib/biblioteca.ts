@@ -15,7 +15,7 @@ import type { Grabacion } from "../types";
  * Sufijos que acompañan al audio y viajan con él.
  * "segmentos.json" va aparte de "json": son dos archivos distintos.
  */
-const ACOMPANANTES = ["txt", "json", "segmentos.json"];
+const ACOMPANANTES = ["txt", "json", "segmentos.json", "log.txt"];
 
 function rutasDe(g: Grabacion): { audio: string; extras: string[] } {
   return {

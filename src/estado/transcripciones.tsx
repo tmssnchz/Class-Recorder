@@ -15,8 +15,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { fijarSuspension } from "../lib/suspensionSistema";
 
 import { ModalDescargaNube } from "../components/ui/ModalDescargaNube";
 import {
@@ -121,7 +121,7 @@ export function ProveedorTranscripciones({ children }: { children: ReactNode }) 
   // Windows no suspenda el equipo: si no, el proceso de whisper muere a mitad
   // de una transcripción larga dejada corriendo de noche.
   useEffect(() => {
-    void invoke(Object.keys(tareas).length > 0 ? "evitar_suspension" : "permitir_suspension");
+    fijarSuspension("transcripcion", Object.keys(tareas).length > 0);
   }, [tareas]);
 
   const actualizarTarea = useCallback(

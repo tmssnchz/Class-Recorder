@@ -272,6 +272,13 @@ export function DetalleGrabacion({
         {formatearBytes(grabacion.bytes)} · {grabacion.formato.toUpperCase()}
       </p>
 
+      {grabacion.avisoAudio && (
+        <div className="aviso aviso-error">
+          <Icono nombre="alerta" />
+          <span>{grabacion.avisoAudio}</span>
+        </div>
+      )}
+
       {error && (
         <div className="aviso aviso-error">
           <Icono nombre="alerta" />
